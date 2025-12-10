@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  v2ray-scrapper:
+    build: .
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./src:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8084
+    
+    env_file:
+      - .env
+    
+    environment:
+      - XRAY_PATH=/usr/local/bin/xray
+      - XRAY_ASSETS_PATH=/usr/local/bin
+
+    restart: unless-stopped
+
+
+    
