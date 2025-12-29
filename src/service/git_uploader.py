@@ -67,6 +67,11 @@ class GitUploader:
                     self._run_command(["git", "reset", "--hard", f"origin/{self.branch}"], cwd=self.repo_dir)
                 except Exception as reset_err:
                      print(f"Critical: Git reset failed too. {reset_err}", file=sys.stderr)
+                     print(f"Deleting corrupted repository at {self.repo_dir} to start fresh.", file=sys.stderr)
+                     import shutil
+                     if os.path.exists(self.repo_dir):
+                         shutil.rmtree(self.repo_dir)
+                     self.setup_repo()
 
     def update_file_and_push(self, filename: str, content: str):
         try:
