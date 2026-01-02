@@ -12,12 +12,15 @@ from core.config import Settings
 from service.git_uploader import GitUploader
 from service.parse_uri import ProxyParser
 from service.xray_service import XrayService
+from service.geoip_service import GeoIPService
+from service.uri_generator import UriGenerator
 
 class SubscriptionService:
     def __init__(self, settings: Settings, xray_service: XrayService):
         self.settings = settings
         self.xray_service = xray_service
         self.parser = ProxyParser()
+        self.geoip_service = GeoIPService(settings.GEOIP_DB_PATH)
         
         # State
         self._cached_all: Optional[List[Dict]] = None
@@ -85,7 +88,35 @@ class SubscriptionService:
 
         successful = sorted([(s, d) for s, d in all_results if d <= self.settings.MAX_DELAY_MS], key=lambda item: item[1])
         print(f"Found {len(successful)} working servers.")
-        return [{**server, "delay": round(delay)} for server, delay in successful]
+        
+        enriched_servers = []
+        for server, delay in successful:
+            s_copy = server.copy()
+            s_copy["delay"] = round(delay)
+            
+            # GeoIP Lookup
+            ip = s_copy.get("address")
+            # If address is a domain, we might not get a country unless we resolve it.
+            # GeoIP reader expects IP. Xray resolves it during test but we don't capture the resolved IP.
+            # Optimization: If it's a domain, we could resolve it, but that adds latency.
+            # Ideally XrayService could return the resolved IP if it tracks it.
+            # For now, let's just try looking it up (geoip2 handles IP strings).
+            # If it's a domain, get_country returns default.
+            
+            country_code, flag = self.geoip_service.get_country(ip)
+            s_copy["country_code"] = country_code
+            s_copy["flag"] = flag
+            
+            # Update Remark: "🇺🇸 US 78ms"
+            new_remark = f"{flag} {country_code} {s_copy['delay']}ms"
+            s_copy["remark"] = new_remark
+            
+            # Regenerate URI
+            s_copy["raw_uri"] = UriGenerator.generate(s_copy)
+            
+            enriched_servers.append(s_copy)
+
+        return enriched_servers
 
     async def update_cache(self):
         """Updates the cache with the top servers."""
@@ -166,6 +197,7 @@ class SubscriptionService:
             print(f"  Failed to push file for {site_url}: {push_err}", file=sys.stderr)
 
     async def start_periodic_update(self):
+        await self.geoip_service.initialize()
         while True:
             print("Periodic cache update started...")
             await self.update_cache()

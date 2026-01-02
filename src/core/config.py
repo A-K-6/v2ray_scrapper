@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Caching
     CACHE_INTERVAL_SECONDS: int = Field(default=900) # 15 minutes
     SITE_CACHE_TTL_SECONDS: int = Field(default=3600) # 1 hour
+    
+    # GeoIP
+    GEOIP_DB_PATH: str = Field(default="Country.mmdb")
 
     # Server Configuration
     UVICORN_HOST: str = Field(default="0.0.0.0")

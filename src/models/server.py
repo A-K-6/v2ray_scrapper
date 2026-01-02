@@ -13,6 +13,8 @@ class Server(BaseModel):
     password: Optional[str] = None
     raw_uri: str
     delay: int
+    country_code: str = "UN"
+    flag: str = "🇺🇳"
 
 class ServerResponse(BaseModel):
     count: int

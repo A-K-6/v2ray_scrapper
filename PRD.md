@@ -4,9 +4,9 @@
 | Metadata | Details |
 | :--- | :--- |
 | **Project Name** | V2Ray Scrapper & Tester |
-| **Version** | 1.0 |
+| **Version** | 1.1 |
 | **Status** | Active / Maintenance |
-| **Last Updated** | 2025-12-02 |
+| **Last Updated** | 2026-01-02 |
 | **Owner** | Engineering Team |
 
 ---
@@ -26,7 +26,8 @@ The system handles the entire lifecycle of a proxy configuration:
 1.  **Ingestion:** Fetching subscription links (VLESS, VMess, Trojan, Shadowsocks).
 2.  **Validation:** Parsing and deduplicating server URIs.
 3.  **Testing:** Performing real-latency tests using the `xray` binary (not just ICMP ping).
-4.  **Distribution:** Exposing results via a REST API (JSON, Base64, Raw) and optionally pushing to a Git repository.
+4.  **Enrichment:** Adding Geo-IP data (Country Code and Flag) to server metadata.
+5.  **Distribution:** Exposing results via a REST API (JSON, Base64, Raw) and optionally pushing to a Git repository.
 
 ---
 
@@ -40,6 +41,7 @@ A self-hosted containerized application that runs in the background, continuousl
 
 ### 2.3 Key Value Propositions
 *   **Real-World Accuracy:** Uses the actual Xray core for testing, ensuring protocol compatibility.
+*   **Geo-Location Intelligence:** Automatically identifies server locations and adds country flags to server names for easy identification in clients.
 *   **Site-Specific Optimization:** Can test if servers work for specific blocked domains (e.g., Google, YouTube).
 *   **Bandwidth Efficiency:** Includes a "Low Internet Consumption" mode to limit testing overhead.
 *   **Persistence:** Automated Git integration allows the verified list to be hosted on GitHub/GitLab for easy external access.
@@ -55,36 +57,39 @@ A self-hosted containerized application that runs in the background, continuousl
     *   VMess (standard and authenticated)
     *   Trojan
     *   Shadowsocks
+    *   Hysteria 2
 *   **FR-03:** The system MUST filter out duplicate servers based on their raw URI.
 
-### 3.2 Server Testing Engine
+### 3.2 Server Testing & Enrichment Engine
 *   **FR-04:** The system MUST use the `xray` binary to establish actual proxy connections for testing.
 *   **FR-05:** The system MUST measure the "Real Delay" (time to establish connection + HTTP HEAD request) to a target URL (default: `http://www.google.com/generate_204`).
 *   **FR-06:** The system MUST enforce a configurable timeout (default: 10s) per test.
-*   **FR-07:** The system MUST support batch testing to manage system resource usage (CPU/RAM).
+*   **FR-07:** The system MUST perform a Geo-IP lookup for each working server to identify its country code and flag.
+*   **FR-08:** The system MUST update server remarks (names) to include the country flag and latency (e.g., "🇺🇸 US 78ms").
+*   **FR-09:** The system MUST regenerate server URIs with updated remarks to ensure compatibility with all proxy clients.
 
 ### 3.3 Caching & Scheduling
-*   **FR-08:** The system MUST maintain an in-memory cache of the "Top 25" and "All" working servers.
-*   **FR-09:** The cache MUST auto-refresh on a configurable interval (default: 15 minutes).
-*   **FR-10:** The system MUST support "Site-Specific Caching," storing results of servers that work for specific target URLs (e.g., `google.com`) for a longer TTL (default: 1 hour).
+*   **FR-10:** The system MUST maintain an in-memory cache of the "Top 25" and "All" working servers.
+*   **FR-11:** The cache MUST auto-refresh on a configurable interval (default: 15 minutes).
+*   **FR-12:** The system MUST support "Site-Specific Caching," storing results of servers that work for specific target URLs (e.g., `google.com`) for a longer TTL (default: 1 hour).
 
 ### 3.4 API Interface
 The system MUST expose a RESTful API with the following endpoints:
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/health` | GET | Service health check. |
-| `/servers/live` | GET | Triggers an immediate test and returns top 25 servers (JSON). |
-| `/cache` | GET | Returns currently cached top 25 servers (JSON). |
-| `/cache/raw` | GET | Returns cached servers as a newline-separated list of URIs. |
-| `/cache/base64` | GET | Returns cached servers as a Base64 encoded string (standard subscription format). |
-| `/cache/all/base64` | GET | Returns ALL working servers (not just top 25) as Base64. |
-| `/subscription/site-specific` | GET | Query param `url`. Returns Base64 subscription of servers capable of accessing the specific URL. |
+| Endpoint | Method | Parameters | Description |
+| :--- | :--- | :--- | :--- |
+| `/health` | GET | - | Service health check. |
+| `/servers/live` | GET | - | Triggers an immediate test and returns top 25 servers (JSON). |
+| `/cache` | GET | - | Returns currently cached top 25 servers (JSON). |
+| `/cache/raw` | GET | - | Returns cached servers as a newline-separated list of URIs. |
+| `/cache/base64` | GET | `country` (opt) | Returns cached servers as a Base64 string. Supports filtering by country (e.g., `?country=US,DE`). |
+| `/cache/all/base64` | GET | `country` (opt) | Returns ALL working servers as Base64. Supports filtering by country. |
+| `/subscription/site-specific` | GET | `url` (req) | Returns Base64 subscription of servers capable of accessing the specific URL. |
 
 ### 3.5 External Integration (Git)
-*   **FR-11:** If enabled, the system MUST automatically push the updated server list to a specified Git repository.
-*   **FR-12:** The system MUST support site-specific file generation (e.g., `www_google_com.txt`) in the Git repo.
-*   **FR-13:** The system MUST handle authentication via Personal Access Tokens (PAT).
+*   **FR-13:** If enabled, the system MUST automatically push the updated server list to a specified Git repository.
+*   **FR-14:** The system MUST support site-specific file generation (e.g., `www_google_com.txt`) in the Git repo.
+*   **FR-15:** The system MUST handle authentication via Personal Access Tokens (PAT).
 
 ---
 
@@ -97,10 +102,11 @@ The system MUST expose a RESTful API with the following endpoints:
 ### 4.2 Reliability
 *   **NFR-03:** The system must gracefully handle network timeouts and upstream API failures (404/500 from subscription providers).
 *   **NFR-04:** The `xray` subprocess must be properly terminated/killed after timeouts to prevent zombie processes.
+*   **NFR-05:** The Geo-IP database should be automatically downloaded if missing on startup.
 
 ### 4.3 Deployment & Configuration
-*   **NFR-05:** The application MUST be containerized (Docker).
-*   **NFR-06:** All configuration MUST be managed via Environment Variables (following 12-Factor App methodology).
+*   **NFR-06:** The application MUST be containerized (Docker).
+*   **NFR-07:** All configuration MUST be managed via Environment Variables (following 12-Factor App methodology).
 
 ---
 
@@ -111,16 +117,18 @@ The system MUST expose a RESTful API with the following endpoints:
 *   **Web Framework:** FastAPI (ASGI)
 *   **Concurrency:** `asyncio`, `aiohttp`
 *   **Proxy Core:** Project Xray (Golang binary)
+*   **Data Enrichment:** `geoip2` (MaxMind DB)
 *   **Validation:** Pydantic
 *   **Settings:** Pydantic-Settings
 
 ### 5.2 Data Flow
-1.  **Startup:** `SubscriptionService` initializes and starts the background loop.
+1.  **Startup:** `SubscriptionService` initializes, downloads/loads Geo-IP database, and starts the background loop.
 2.  **Fetch:** `aiohttp` pulls data from `SUB_URLS`.
-3.  **Parse:** `ProxyParser` converts raw base64/text into `Server` models.
-4.  **Test:** `XrayService` generates a temporary JSON config, spins up `xray`, and attempts `aiohttp` requests through the local SOCKS5 port.
-5.  **Cache:** Successful results are sorted by latency and stored in memory.
-6.  **Serve:** API endpoints read from memory and return formatted responses.
+3.  **Parse:** `ProxyParser` converts raw base64/text into structured dictionaries.
+4.  **Test:** `XrayService` runs batch latency tests via local SOCKS5 ports.
+5.  **Enrich:** `GeoIPService` identifies country codes and flags; `UriGenerator` updates server remarks and regenerates raw URIs.
+6.  **Cache:** Enriched results are sorted by latency and stored in memory.
+7.  **Serve:** API endpoints filter (by country if requested) and return formatted responses.
 
 ---
 
@@ -132,6 +140,7 @@ The system MUST expose a RESTful API with the following endpoints:
 | `XRAY_PATH` | `/usr/local/bin/xray` | Path to the Xray executable. |
 | `CACHE_INTERVAL_SECONDS` | `900` | How often to refresh the server list. |
 | `MAX_DELAY_MS` | `8000` | Maximum allowed latency to consider a server "working". |
+| `GEOIP_DB_PATH` | `Country.mmdb` | Path to the Geo-IP database file. |
 | `GITHUB_PUSH_ENABLED` | `false` | Enable/Disable Git integration. |
 | `GITHUB_REPO_URL` | - | Target repository HTTPS URL. |
 | `GITHUB_TOKEN` | - | GitHub PAT for authentication. |
@@ -141,6 +150,5 @@ The system MUST expose a RESTful API with the following endpoints:
 
 ## 7. Roadmap / Future Improvements
 *   **Database Persistence:** Switch from in-memory caching to Redis or SQLite to persist server stats across restarts.
-*   **Geo-IP Filtering:** Integrate `maxmind` or similar to allow users to request servers by country (e.g., `/servers?country=US`).
 *   **Protocol Converter:** Functionality to convert between protocols (e.g., VLESS -> Clash YAML).
 *   **Web Dashboard:** A simple React/HTML frontend to visualize server health and manually trigger updates.

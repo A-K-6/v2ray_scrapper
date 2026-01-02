@@ -22,4 +22,4 @@ starlette==0.47.3
 typing-inspection==0.4.1
 typing_extensions==4.15.0
 uvicorn==0.35.0
-yarl==1.20.1
+yarl==1.20.1geoip2==4.8.0

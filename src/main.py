@@ -2,7 +2,7 @@
 import asyncio
 import base64
 import sys
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,19 +73,33 @@ async def get_cached_raw(cached_servers: List[Dict] = Depends(get_top_servers_de
     raw_links = [s["raw_uri"] for s in cached_servers]
     return Response("\n".join(raw_links), media_type="text/plain")
 
+def filter_servers(servers: List[Dict], countries: Optional[str] = None) -> List[Dict]:
+    if not countries:
+        return servers
+    target_countries = {c.strip().upper() for c in countries.split(",") if c.strip()}
+    return [s for s in servers if s.get("country_code", "UN").upper() in target_countries]
+
 @app.get("/cache/base64", summary="Get cached top 25 as a Base64 encoded subscription")
-async def get_cached_base64(cached_servers: List[Dict] = Depends(get_top_servers_dep)):
-    raw_links = [s["raw_uri"] for s in cached_servers]
+async def get_cached_base64(
+    country: Optional[str] = Query(None, description="Filter by country codes (e.g., US,DE)"),
+    cached_servers: List[Dict] = Depends(get_top_servers_dep)
+):
+    filtered = filter_servers(cached_servers, country)
+    raw_links = [s["raw_uri"] for s in filtered]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
 
 @app.get("/cache/all/base64", summary="Get ALL cached servers as a Base64 subscription")
-async def get_cached_all_base64():
+async def get_cached_all_base64(
+    country: Optional[str] = Query(None, description="Filter by country codes (e.g., US,DE)")
+):
     cached_all = await subscription_service.get_all_cached()
     if cached_all is None:
         raise HTTPException(status_code=503, detail="Cache not initialized.")
-    raw_links = [s["raw_uri"] for s in cached_all]
+    
+    filtered = filter_servers(cached_all, country)
+    raw_links = [s["raw_uri"] for s in filtered]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
