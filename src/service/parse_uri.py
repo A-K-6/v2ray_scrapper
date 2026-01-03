@@ -65,7 +65,7 @@ class ProxyParser:
         try:
             encoded_part = uri.replace("vmess://", "")
             encoded_part += "=" * (-len(encoded_part) % 4)
-            decoded_json = base64.b64decode(encoded_part).decode("utf-8")
+            decoded_json = base64.b64decode(encoded_part).decode("utf-8", errors="ignore")
             vmess_data = json.loads(decoded_json)
 
             return {
@@ -83,7 +83,7 @@ class ProxyParser:
                 "aid": vmess_data.get("aid", 0),
                 "raw_uri": uri,
             }
-        except (json.JSONDecodeError, binascii.Error, TypeError) as e:
+        except (json.JSONDecodeError, binascii.Error, TypeError, ValueError) as e:
             print(f"Error parsing VMess URI: {uri}. Error: {e}", file=sys.stderr)
             return None
 

@@ -114,6 +114,23 @@ class XrayService:
         return {"log": {"loglevel": "warning"}, "inbounds": inbounds, "outbounds": outbounds, "routing": {"rules": routing_rules}}
 
 
+    async def _wait_for_ports(self, ports: List[int], timeout: float = 5.0) -> bool:
+        """Waits until the first port is listening, indicating Xray has started."""
+        if not ports: return True
+        
+        start_time = time.time()
+        port = ports[0]
+        while time.time() - start_time < timeout:
+            try:
+                # Try to connect to the port
+                reader, writer = await asyncio.open_connection('127.0.0.1', port)
+                writer.close()
+                await writer.wait_closed()
+                return True
+            except (ConnectionRefusedError, OSError):
+                await asyncio.sleep(0.1)
+        return False
+
     async def test_server_real_delay(self, port: int) -> float:
         """Tests latency by making a request through the local SOCKS5 proxy."""
         proxy_url = f"socks5://127.0.0.1:{port}"
@@ -162,7 +179,10 @@ class XrayService:
                 self.settings.XRAY_PATH, "-c", config_path,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env
             )
-            await asyncio.sleep(2)
+            
+            # Smart polling: wait for Xray ports to be ready
+            ports = [self.settings.BASE_PORT + i for i in range(len(servers))]
+            await self._wait_for_ports(ports, timeout=3.0)
 
             if process.returncode is not None:
                 stdout_data = await process.stdout.read()
@@ -217,7 +237,10 @@ class XrayService:
                     self.settings.XRAY_PATH, "-c", config_path,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env
                 )
-                await asyncio.sleep(2)
+                
+                # Smart polling: wait for Xray ports to be ready
+                ports = [self.settings.BASE_PORT + j for j in range(len(batch))]
+                await self._wait_for_ports(ports, timeout=3.0)
 
                 if process.returncode is not None:
                     stdout_data = await process.stdout.read()
