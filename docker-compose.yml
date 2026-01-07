@@ -15,8 +15,21 @@ services:
     environment:
       - XRAY_PATH=/usr/local/bin/xray
       - XRAY_ASSETS_PATH=/usr/local/bin
+      - REDIS_HOST=redis
+
+    depends_on:
+      - redis
 
     restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
 
 
     

@@ -23,6 +23,9 @@ class ProxyParser:
             return self._parse_ss_uri(uri)
         elif uri.startswith("hy2://"):
             return self._parse_hy2_uri(uri)
+        elif uri.startswith("ssr://"):
+            # SSR is not supported by standard Xray core, skip quietly
+            return None
         else:
             print(f"Unsupported URI scheme: {uri}", file=sys.stderr)
             return None
@@ -63,9 +66,36 @@ class ProxyParser:
     def _parse_vmess_uri(uri: str) -> Optional[Dict[str, Any]]:
         """Parses a VMess URI into a structured dictionary."""
         try:
+            # 1. Strip protocol
             encoded_part = uri.replace("vmess://", "")
-            encoded_part += "=" * (-len(encoded_part) % 4)
-            decoded_json = base64.b64decode(encoded_part).decode("utf-8", errors="ignore")
+            
+            # 2. Strip query parameters (some aggregators add ?remarks=...)
+            if "?" in encoded_part:
+                encoded_part = encoded_part.split("?")[0]
+            
+            # 3. Clean whitespace
+            encoded_part = encoded_part.strip()
+            
+            # 4. Robust Base64 Decoding
+            # Fix padding
+            padding_needed = 4 - (len(encoded_part) % 4)
+            if padding_needed and padding_needed != 4:
+                encoded_part += "=" * padding_needed
+                
+            try:
+                decoded_bytes = base64.b64decode(encoded_part, validate=False)
+                decoded_json = decoded_bytes.decode("utf-8", errors="ignore")
+            except (binascii.Error, ValueError):
+                # If standard decode fails, try to strip non-base64 chars from the end?
+                # or just fail. For now, let's assume padding fix is enough for most.
+                return None
+
+            # 5. Handle "Extra data" (JSON followed by garbage)
+            # Find the last '}'
+            last_brace_index = decoded_json.rfind("}")
+            if last_brace_index != -1:
+                decoded_json = decoded_json[:last_brace_index+1]
+            
             vmess_data = json.loads(decoded_json)
 
             return {
@@ -84,7 +114,8 @@ class ProxyParser:
                 "raw_uri": uri,
             }
         except (json.JSONDecodeError, binascii.Error, TypeError, ValueError) as e:
-            print(f"Error parsing VMess URI: {uri}. Error: {e}", file=sys.stderr)
+            # Uncomment for debugging specific failing URIs
+            # print(f"Error parsing VMess URI: {uri[:50]}... Error: {e}", file=sys.stderr)
             return None
 
     @staticmethod
@@ -121,25 +152,55 @@ class ProxyParser:
         try:
             parsed = urlparse(uri)
             
-            user_info_part, address_part = parsed.netloc.split('@', 1)
+            # Helper to handle different SS formats
+            user_info_part = parsed.netloc
+            if '@' in user_info_part:
+                user_info_part, address_part = user_info_part.split('@', 1)
+            else:
+                 # Legacy SS format handling might go here, but for now assume standard
+                 return None
 
-            user_info_decoded = base64.urlsafe_b64decode(user_info_part + '===').decode('utf-8')
+            # Fix padding for user_info
+            padding = 4 - (len(user_info_part) % 4)
+            if padding != 4:
+                user_info_part += '=' * padding
             
+            user_info_decoded = base64.urlsafe_b64decode(user_info_part).decode('utf-8')
+            
+            if ':' not in user_info_decoded:
+                return None
+                
             method, password = user_info_decoded.split(':', 1)
-            host, port_str = address_part.rsplit(':', 1)
-            port = int(port_str)
+            
+            if ':' in address_part:
+                host, port_str = address_part.rsplit(':', 1)
+                port = int(port_str)
+            else:
+                return None
+
+            # Safely decode the remark (fragment)
+            remark = ""
+            if parsed.fragment:
+                try:
+                    from urllib.parse import unquote
+                    remark = unquote(parsed.fragment)
+                except Exception:
+                    remark = parsed.fragment
 
             return {
                 "protocol": "shadowsocks",
-                "remark": parsed.fragment or "",
+                "remark": remark,
                 "address": host,
                 "port": port,
                 "method": method,
                 "password": password,
                 "raw_uri": uri,
             }
-        except (ValueError, IndexError, binascii.Error) as e:
-            print(f"Error parsing Shadowsocks URI: {uri}. Error: {e}", file=sys.stderr)
+        except (ValueError, IndexError, binascii.Error, UnicodeDecodeError):
+            # Silently skip malformed SS links to avoid log noise
+            return None
+        except Exception as e:
+            # print(f"Error parsing Shadowsocks URI: {uri}. Error: {e}", file=sys.stderr)
             return None
 
     @staticmethod

@@ -13,6 +13,7 @@ from service.git_uploader import GitUploader
 from service.parse_uri import ProxyParser
 from service.xray_service import XrayService
 from service.geoip_service import GeoIPService
+from service.storage_service import StorageService
 from service.uri_generator import UriGenerator
 
 class SubscriptionService:
@@ -21,6 +22,7 @@ class SubscriptionService:
         self.xray_service = xray_service
         self.parser = ProxyParser()
         self.geoip_service = GeoIPService(settings.GEOIP_DB_PATH)
+        self.storage_service = StorageService(settings)
         
         # State
         self._cached_all: Optional[List[Dict]] = None
@@ -31,38 +33,92 @@ class SubscriptionService:
         self._site_cache: Dict[str, Tuple[float, List[Dict]]] = {}
         self._site_cache_lock = asyncio.Lock()
 
+    def _generate_fingerprint(self, server: Dict) -> int:
+        """Generates a unique hash for a server based on its connection details."""
+        protocol = server.get("protocol")
+        # Common fields for identity: address, port
+        common = (server.get("address"), server.get("port"))
+        
+        if protocol == "vless":
+            # Identity: protocol, address, port, uuid, flow, type, security, path
+            return hash((
+                "vless", *common, 
+                server.get("vless_id"), 
+                server.get("flow"),
+                server.get("type"), 
+                server.get("security"), 
+                server.get("path")
+            ))
+        elif protocol == "vmess":
+             # Identity: protocol, address, port, uuid, type, security, path, tls, aid
+             return hash((
+                 "vmess", *common, 
+                 server.get("vmess_id"), 
+                 server.get("type"), 
+                 server.get("security"), 
+                 server.get("path"), 
+                 server.get("tls"),
+                 server.get("aid")
+             ))
+        elif protocol == "trojan":
+             # Identity: protocol, address, port, password
+             return hash(("trojan", *common, server.get("password")))
+        elif protocol == "shadowsocks":
+             # Identity: protocol, address, port, method, password
+             return hash(("shadowsocks", *common, server.get("method"), server.get("password")))
+        elif protocol == "hysteria2":
+             # Identity: protocol, address, port, password, obfs
+             return hash(("hysteria2", *common, server.get("password"), server.get("obfs")))
+        
+        # Fallback for unknown protocols: use raw_uri (less optimal but safe)
+        return hash(server.get("raw_uri"))
+
+    async def _fetch_single_url(self, session: aiohttp.ClientSession, url: str) -> List[Dict]:
+        url = url.strip()
+        if not url: return []
+        
+        print(f"Fetching from: {url}")
+        try:
+            async with session.get(url, timeout=30) as resp:
+                resp.raise_for_status()
+                raw_text = await resp.text()
+                if raw_text.strip().startswith("<"):
+                    print(f"Error: content from {url} is HTML. Skipping.", file=sys.stderr)
+                    return []
+                try:
+                    decoded = base64.b64decode(raw_text).decode("utf-8", errors="ignore")
+                except Exception:
+                    decoded = raw_text
+                
+                lines = [line.strip() for line in decoded.splitlines() if line.strip()]
+                parsed_batch = [p for p in (self.parser.parse(line) for line in lines) if p]
+                print(f"  Found {len(parsed_batch)} servers from {url}.")
+                return parsed_batch
+        except Exception as e:
+            print(f"Failed to fetch {url}: {e}", file=sys.stderr)
+            return []
+
     async def fetch_subscription_servers(self) -> List[Dict]:
         print("Fetching subscriptions...")
-        all_servers = []
-        
-        for url in self.settings.SUB_URLS:
-            url = url.strip()
-            if not url: continue
+        tasks = []
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            for url in self.settings.SUB_URLS:
+                tasks.append(self._fetch_single_url(session, url))
             
-            print(f"Fetching from: {url}")
-            try:
-                async with aiohttp.ClientSession(trust_env=False) as session:
-                    async with session.get(url, timeout=30) as resp:
-                        resp.raise_for_status()
-                        raw_text = await resp.text()
-                        if raw_text.strip().startswith("<"):
-                            print(f"Error: content from {url} is HTML. Skipping.", file=sys.stderr)
-                            continue
-                        try:
-                            decoded = base64.b64decode(raw_text).decode("utf-8", errors="ignore")
-                        except Exception:
-                            decoded = raw_text
-                        
-                        lines = [line.strip() for line in decoded.splitlines() if line.strip()]
-                        parsed_batch = [p for p in (self.parser.parse(line) for line in lines) if p]
-                        all_servers.extend(parsed_batch)
-                        print(f"  Found {len(parsed_batch)} servers from {url}.")
-            except Exception as e:
-                print(f"Failed to fetch {url}: {e}", file=sys.stderr)
-
-        unique_servers = {s['raw_uri']: s for s in all_servers}.values()
-        final_list = list(unique_servers)
-        print(f"Total unique servers found: {len(final_list)}")
+            results = await asyncio.gather(*tasks)
+        
+        # Flatten and Deduplicate
+        seen_fingerprints = {}
+        total_found = 0
+        for batch in results:
+            total_found += len(batch)
+            for server in batch:
+                fp = self._generate_fingerprint(server)
+                if fp not in seen_fingerprints:
+                    seen_fingerprints[fp] = server
+        
+        final_list = list(seen_fingerprints.values())
+        print(f"Total servers found: {total_found}. Unique servers: {len(final_list)}")
 
         if self.settings.LOW_INTERNET_CONS:
             print(f"Low Internet Consumption Mode ON: Limiting to top {self.settings.LOW_INTERNET_LIMIT} servers.")
@@ -96,13 +152,6 @@ class SubscriptionService:
             
             # GeoIP Lookup
             ip = s_copy.get("address")
-            # If address is a domain, we might not get a country unless we resolve it.
-            # GeoIP reader expects IP. Xray resolves it during test but we don't capture the resolved IP.
-            # Optimization: If it's a domain, we could resolve it, but that adds latency.
-            # Ideally XrayService could return the resolved IP if it tracks it.
-            # For now, let's just try looking it up (geoip2 handles IP strings).
-            # If it's a domain, get_country returns default.
-            
             country_code, flag = self.geoip_service.get_country(ip)
             s_copy["country_code"] = country_code
             s_copy["flag"] = flag
@@ -131,6 +180,9 @@ class SubscriptionService:
                     self._cached_all = top_servers
                     self._cached_top25 = top_servers[:25]
                 print(f"Cache updated with {len(top_servers)} servers.")
+
+                # Persist to Redis
+                await self.storage_service.save_servers("working_servers", top_servers)
 
                 await self._handle_github_push(top_servers)
                 await self._handle_precheck_sites(top_servers)
@@ -198,6 +250,16 @@ class SubscriptionService:
 
     async def start_periodic_update(self):
         await self.geoip_service.initialize()
+        await self.storage_service.initialize()
+        
+        # Try to load from cache first
+        cached = await self.storage_service.load_servers("working_servers")
+        if cached:
+             async with self._cache_lock:
+                 self._cached_all = cached
+                 self._cached_top25 = cached[:25]
+             print(f"Loaded {len(cached)} servers from persistent storage.")
+
         while True:
             print("Periodic cache update started...")
             await self.update_cache()
@@ -229,12 +291,6 @@ class SubscriptionService:
             return None
 
         if self._processing_lock.locked():
-             # Avoid starting a heavy test if system is busy? 
-             # Or maybe we just wait for lock if we want to prevent concurrent heavy loads?
-             # The original code raised 429 if locked.
-             # But here evaluate_site_accessibility uses run_test_batch logic which spawns xray.
-             # We probably want to allow it but maybe limit concurrency.
-             # For now, let's respect the lock to avoid overloading.
              return None
 
         async with self._processing_lock:

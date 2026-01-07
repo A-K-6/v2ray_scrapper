@@ -182,7 +182,15 @@ class XrayService:
             
             # Smart polling: wait for Xray ports to be ready
             ports = [self.settings.BASE_PORT + i for i in range(len(servers))]
-            await self._wait_for_ports(ports, timeout=3.0)
+            # Increased timeout to 10s to allow for heavier configs/slower systems
+            if not await self._wait_for_ports(ports, timeout=10.0):
+                print(f"Xray timed out waiting for ports to open.", file=sys.stderr)
+                if process.returncode is None:
+                     process.terminate()
+                stdout, stderr = await process.communicate()
+                print(f"Stdout: {stdout.decode()}", file=sys.stderr)
+                print(f"Stderr: {stderr.decode()}", file=sys.stderr)
+                return [(s, float("inf")) for s in servers]
 
             if process.returncode is not None:
                 stdout_data = await process.stdout.read()
