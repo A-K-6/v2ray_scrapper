@@ -2,6 +2,7 @@ import json
 import sys
 from typing import Dict, List, Optional
 import redis.asyncio as redis
+from loguru import logger
 
 from core.config import Settings
 
@@ -21,9 +22,9 @@ class StorageService:
                 decode_responses=True
             )
             await self.redis.ping()
-            print(f"Connected to Redis at {self.settings.REDIS_HOST}:{self.settings.REDIS_PORT}")
+            logger.info(f"Connected to Redis at {self.settings.REDIS_HOST}:{self.settings.REDIS_PORT}")
         except Exception as e:
-            print(f"Failed to connect to Redis: {e}", file=sys.stderr)
+            logger.error(f"Failed to connect to Redis: {e}")
             self.redis = None
 
     async def save_servers(self, key: str, servers: List[Dict], ttl: int = 0):
@@ -38,7 +39,7 @@ class StorageService:
             else:
                 await self.redis.set(key, json_data)
         except Exception as e:
-            print(f"Error saving to Redis (key={key}): {e}", file=sys.stderr)
+            logger.error(f"Error saving to Redis (key={key}): {e}")
 
     async def load_servers(self, key: str) -> List[Dict]:
         """Loads a list of servers from Redis."""
@@ -50,7 +51,7 @@ class StorageService:
             if data:
                 return json.loads(data)
         except Exception as e:
-            print(f"Error loading from Redis (key={key}): {e}", file=sys.stderr)
+            logger.error(f"Error loading from Redis (key={key}): {e}")
         return []
 
     async def close(self):

@@ -81,6 +81,17 @@ Configuration is handled via environment variables, loaded through Pydantic `Bas
 *   **Type Hinting:** Strictly use Python type hints for better code quality and IDE support.
 *   **Linting/Formatting:** Follow standard Python PEP 8 guidelines.
 
+## Improvement Workflow (Ideas)
+
+The `ideas/` directory contains proposals for project improvements, features, and refactoring.
+
+1.  **Selection:** Pick a file from `ideas/` (e.g., `001-structured-logging.md`).
+2.  **Implementation:** Follow the "Implementation Steps" defined in the markdown file.
+3.  **Completion:** Once the feature is verified, update the markdown file:
+    *   Add `(Completed)` to the title.
+    *   Add a `## Status` section at the top with the completion date.
+    *   Example: `## Status` -> `**Implemented** on YYYY-MM-DD.`
+
 ## API Endpoints
 
 *   `GET /health`: Service health check.

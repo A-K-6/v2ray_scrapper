@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
+from loguru import logger
 
 from core.config import Settings
 from service.git_uploader import GitUploader
@@ -77,13 +78,13 @@ class SubscriptionService:
         url = url.strip()
         if not url: return []
         
-        print(f"Fetching from: {url}")
+        logger.info(f"Fetching from: {url}")
         try:
             async with session.get(url, timeout=30) as resp:
                 resp.raise_for_status()
                 raw_text = await resp.text()
                 if raw_text.strip().startswith("<"):
-                    print(f"Error: content from {url} is HTML. Skipping.", file=sys.stderr)
+                    logger.error(f"Error: content from {url} is HTML. Skipping.")
                     return []
                 try:
                     decoded = base64.b64decode(raw_text).decode("utf-8", errors="ignore")
@@ -92,14 +93,14 @@ class SubscriptionService:
                 
                 lines = [line.strip() for line in decoded.splitlines() if line.strip()]
                 parsed_batch = [p for p in (self.parser.parse(line) for line in lines) if p]
-                print(f"  Found {len(parsed_batch)} servers from {url}.")
+                logger.info(f"  Found {len(parsed_batch)} servers from {url}.")
                 return parsed_batch
         except Exception as e:
-            print(f"Failed to fetch {url}: {e}", file=sys.stderr)
+            logger.error(f"Failed to fetch {url}: {e}")
             return []
 
     async def fetch_subscription_servers(self) -> List[Dict]:
-        print("Fetching subscriptions...")
+        logger.info("Fetching subscriptions...")
         tasks = []
         async with aiohttp.ClientSession(trust_env=False) as session:
             for url in self.settings.SUB_URLS:
@@ -118,10 +119,10 @@ class SubscriptionService:
                     seen_fingerprints[fp] = server
         
         final_list = list(seen_fingerprints.values())
-        print(f"Total servers found: {total_found}. Unique servers: {len(final_list)}")
+        logger.info(f"Total servers found: {total_found}. Unique servers: {len(final_list)}")
 
         if self.settings.LOW_INTERNET_CONS:
-            print(f"Low Internet Consumption Mode ON: Limiting to top {self.settings.LOW_INTERNET_LIMIT} servers.")
+            logger.info(f"Low Internet Consumption Mode ON: Limiting to top {self.settings.LOW_INTERNET_LIMIT} servers.")
             final_list = final_list[:self.settings.LOW_INTERNET_LIMIT]
 
         return final_list
@@ -129,7 +130,7 @@ class SubscriptionService:
     async def compute_top_servers(self) -> List[Dict]:
         if not os.path.exists(self.settings.XRAY_PATH):
              # This might happen if Xray is not installed yet or path is wrong
-             print(f"Warning: Xray executable not found at {self.settings.XRAY_PATH}", file=sys.stderr)
+             logger.warning(f"Warning: Xray executable not found at {self.settings.XRAY_PATH}")
              
         servers = await self.fetch_subscription_servers()
         if not servers:
@@ -138,12 +139,12 @@ class SubscriptionService:
         all_results = []
         for i in range(0, len(servers), self.settings.BATCH_SIZE):
             batch = servers[i : i + self.settings.BATCH_SIZE]
-            print(f"Testing batch {i // self.settings.BATCH_SIZE + 1}...")
+            logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1}...")
             batch_results = await self.xray_service.run_test_batch(batch)
             all_results.extend(batch_results)
 
         successful = sorted([(s, d) for s, d in all_results if d <= self.settings.MAX_DELAY_MS], key=lambda item: item[1])
-        print(f"Found {len(successful)} working servers.")
+        logger.info(f"Found {len(successful)} working servers.")
         
         enriched_servers = []
         for server, delay in successful:
@@ -170,7 +171,7 @@ class SubscriptionService:
     async def update_cache(self):
         """Updates the cache with the top servers."""
         if self._processing_lock.locked():
-            print("Skipping update, a test is already in progress.")
+            logger.info("Skipping update, a test is already in progress.")
             return
             
         async with self._processing_lock:
@@ -179,7 +180,7 @@ class SubscriptionService:
                 async with self._cache_lock:
                     self._cached_all = top_servers
                     self._cached_top25 = top_servers[:25]
-                print(f"Cache updated with {len(top_servers)} servers.")
+                logger.info(f"Cache updated with {len(top_servers)} servers.")
 
                 # Persist to Redis
                 await self.storage_service.save_servers("working_servers", top_servers)
@@ -188,11 +189,11 @@ class SubscriptionService:
                 await self._handle_precheck_sites(top_servers)
 
             except Exception as e:
-                print(f"Error during cache update: {e}", file=sys.stderr)
+                logger.error(f"Error during cache update: {e}")
 
     async def _handle_github_push(self, top_servers: List[Dict]):
         if self.settings.GITHUB_PUSH_ENABLED and self.settings.GITHUB_TOKEN and self.settings.GITHUB_REPO_URL and top_servers:
-            print("Starting GitHub push for main subscription...")
+            logger.info("Starting GitHub push for main subscription...")
             try:
                 raw_links = [s["raw_uri"] for s in top_servers]
                 content = "\n".join(raw_links)
@@ -207,25 +208,25 @@ class SubscriptionService:
                 )
                 await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
             except Exception as e:
-                print(f"Main GitHub push failed: {e}", file=sys.stderr)
+                logger.error(f"Main GitHub push failed: {e}")
 
     async def _handle_precheck_sites(self, top_servers: List[Dict]):
         if self.settings.PRECHECK_SITES and top_servers:
-            print(f"Pre-warming site cache for: {self.settings.PRECHECK_SITES}")
+            logger.info(f"Pre-warming site cache for: {self.settings.PRECHECK_SITES}")
             for site_url in self.settings.PRECHECK_SITES:
-                print(f"  Pre-checking {site_url}...")
+                logger.info(f"  Pre-checking {site_url}...")
                 try:
                     valid_servers = await self.xray_service.evaluate_site_accessibility(site_url, top_servers)
                     
                     async with self._site_cache_lock:
                         self._site_cache[site_url] = (time.time(), valid_servers)
-                    print(f"  Cached {len(valid_servers)} servers for {site_url}")
+                    logger.info(f"  Cached {len(valid_servers)} servers for {site_url}")
 
                     if self.settings.GITHUB_PUSH_ENABLED and valid_servers:
                         await self._push_site_specific_list(site_url, valid_servers)
 
                 except Exception as e:
-                    print(f"  Failed to pre-check {site_url}: {e}", file=sys.stderr)
+                    logger.error(f"  Failed to pre-check {site_url}: {e}")
 
     async def _push_site_specific_list(self, site_url: str, valid_servers: List[Dict]):
         try:
@@ -243,10 +244,10 @@ class SubscriptionService:
                 repo_dir=self.settings.GITHUB_REPO_DIR,
                 branch=self.settings.GITHUB_BRANCH
             )
-            print(f"  Pushing {site_filename} to GitHub...")
+            logger.info(f"  Pushing {site_filename} to GitHub...")
             await asyncio.to_thread(uploader.update_file_and_push, site_filename, site_content)
         except Exception as push_err:
-            print(f"  Failed to push file for {site_url}: {push_err}", file=sys.stderr)
+            logger.error(f"  Failed to push file for {site_url}: {push_err}")
 
     async def start_periodic_update(self):
         await self.geoip_service.initialize()
@@ -258,10 +259,10 @@ class SubscriptionService:
              async with self._cache_lock:
                  self._cached_all = cached
                  self._cached_top25 = cached[:25]
-             print(f"Loaded {len(cached)} servers from persistent storage.")
+             logger.info(f"Loaded {len(cached)} servers from persistent storage.")
 
         while True:
-            print("Periodic cache update started...")
+            logger.info("Periodic cache update started...")
             await self.update_cache()
             await asyncio.sleep(self.settings.CACHE_INTERVAL_SECONDS)
 

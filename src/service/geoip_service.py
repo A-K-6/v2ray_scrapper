@@ -3,6 +3,7 @@ import sys
 import aiohttp
 import geoip2.database
 from typing import Optional, Tuple
+from loguru import logger
 
 class GeoIPService:
     def __init__(self, db_path: str = "Country.mmdb"):
@@ -13,14 +14,14 @@ class GeoIPService:
     async def initialize(self):
         """Downloads the DB if missing and opens the reader."""
         if not os.path.exists(self.db_path):
-            print(f"GeoIP database not found at {self.db_path}. Downloading...")
+            logger.info(f"GeoIP database not found at {self.db_path}. Downloading...")
             await self._download_db()
         
         try:
             self.reader = geoip2.database.Reader(self.db_path)
-            print(f"GeoIP database loaded from {self.db_path}")
+            logger.info(f"GeoIP database loaded from {self.db_path}")
         except Exception as e:
-            print(f"Failed to load GeoIP database: {e}", file=sys.stderr)
+            logger.error(f"Failed to load GeoIP database: {e}")
 
     async def _download_db(self):
         try:
@@ -33,9 +34,9 @@ class GeoIPService:
                             if not chunk:
                                 break
                             f.write(chunk)
-            print("GeoIP database download complete.")
+            logger.info("GeoIP database download complete.")
         except Exception as e:
-            print(f"Error downloading GeoIP database: {e}", file=sys.stderr)
+            logger.error(f"Error downloading GeoIP database: {e}")
 
     def get_country(self, ip: str) -> Tuple[str, str]:
         """Returns (country_code, flag_emoji). Defaults to ('UN', '🇺🇳')."""

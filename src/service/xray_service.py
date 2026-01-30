@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
+from loguru import logger
 
 from core.config import Settings
 
@@ -201,20 +202,20 @@ class XrayService:
             ports = [self.settings.BASE_PORT + i for i in range(len(servers))]
             # Increased timeout to 10s to allow for heavier configs/slower systems
             if not await self._wait_for_ports(ports, timeout=10.0):
-                print(f"Xray timed out waiting for ports to open.", file=sys.stderr)
+                logger.error(f"Xray timed out waiting for ports to open.")
                 if process.returncode is None:
                      process.terminate()
                 stdout, stderr = await process.communicate()
-                print(f"Stdout: {stdout.decode()}", file=sys.stderr)
-                print(f"Stderr: {stderr.decode()}", file=sys.stderr)
+                logger.error(f"Stdout: {stdout.decode()}")
+                logger.error(f"Stderr: {stderr.decode()}")
                 return [(s, float("inf")) for s in servers]
 
             if process.returncode is not None:
                 stdout_data = await process.stdout.read()
                 stderr_data = await process.stderr.read()
-                print(f"Xray process failed to start.", file=sys.stderr)
-                print(f"Stdout: {stdout_data.decode()}", file=sys.stderr)
-                print(f"Stderr: {stderr_data.decode()}", file=sys.stderr)
+                logger.error(f"Xray process failed to start.")
+                logger.error(f"Stdout: {stdout_data.decode()}")
+                logger.error(f"Stderr: {stderr_data.decode()}")
                 return [(s, float("inf")) for s in servers]
 
             tasks = [self.test_server_real_delay(self.settings.BASE_PORT + i) for i, _ in enumerate(servers)]
@@ -222,10 +223,10 @@ class XrayService:
             return list(zip(servers, results))
 
         except FileNotFoundError:
-            print(f"Error: Xray not found at '{self.settings.XRAY_PATH}'.", file=sys.stderr)
+            logger.error(f"Error: Xray not found at '{self.settings.XRAY_PATH}'.")
             return [(s, float("inf")) for s in servers]
         except Exception as e:
-            print(f"An error occurred during batch testing: {e}", file=sys.stderr)
+            logger.error(f"An error occurred during batch testing: {e}")
             return [(s, float("inf")) for s in servers]
         finally:
             if process and process.returncode is None:
@@ -244,7 +245,7 @@ class XrayService:
         
         for i in range(0, len(servers_to_test), self.settings.BATCH_SIZE):
             batch = servers_to_test[i : i + self.settings.BATCH_SIZE]
-            print(f"Testing batch {i // self.settings.BATCH_SIZE + 1} for site: {url}")
+            logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1} for site: {url}")
 
             xray_config = self.build_xray_config_for_batch(batch, self.settings.BASE_PORT)
             tmp = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json", encoding="utf-8")
@@ -270,9 +271,9 @@ class XrayService:
                 if process.returncode is not None:
                     stdout_data = await process.stdout.read()
                     stderr_data = await process.stderr.read()
-                    print(f"Xray process (site check) failed to start.", file=sys.stderr)
-                    print(f"Stdout: {stdout_data.decode()}", file=sys.stderr)
-                    print(f"Stderr: {stderr_data.decode()}", file=sys.stderr)
+                    logger.error(f"Xray process (site check) failed to start.")
+                    logger.error(f"Stdout: {stdout_data.decode()}")
+                    logger.error(f"Stderr: {stderr_data.decode()}")
                     continue
 
                 tasks = [self.check_url_via_proxy(self.settings.BASE_PORT + j, url) for j, _ in enumerate(batch)]

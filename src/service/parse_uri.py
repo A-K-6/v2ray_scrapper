@@ -5,6 +5,7 @@ import sys
 import re
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse, parse_qs
+from loguru import logger
 
 class ProxyParser:
     """
@@ -32,7 +33,7 @@ class ProxyParser:
             # SSR is not supported by standard Xray core, skip quietly
             return None
         else:
-            # print(f"Unsupported URI scheme: {uri}", file=sys.stderr)
+            # logger.warning(f"Unsupported URI scheme: {uri}")
             return None
 
     @staticmethod
@@ -41,7 +42,7 @@ class ProxyParser:
         try:
             parsed = urlparse(uri)
             if not all([parsed.scheme == 'vless', parsed.username, parsed.hostname, parsed.port]):
-                print(f"Skipping malformed VLESS URI: {uri}", file=sys.stderr)
+                logger.warning(f"Skipping malformed VLESS URI: {uri}")
                 return None
 
             query_params = parse_qs(parsed.query)
@@ -64,7 +65,7 @@ class ProxyParser:
                 "raw_uri": uri,
             }
         except (ValueError, AttributeError) as e:
-            print(f"Error parsing VLESS URI: {uri}. Error: {e}", file=sys.stderr)
+            logger.error(f"Error parsing VLESS URI: {uri}. Error: {e}")
             return None
 
     @staticmethod
@@ -120,7 +121,7 @@ class ProxyParser:
             }
         except (json.JSONDecodeError, binascii.Error, TypeError, ValueError) as e:
             # Uncomment for debugging specific failing URIs
-            # print(f"Error parsing VMess URI: {uri[:50]}... Error: {e}", file=sys.stderr)
+            # logger.debug(f"Error parsing VMess URI: {uri[:50]}... Error: {e}")
             return None
 
     @staticmethod
@@ -129,7 +130,7 @@ class ProxyParser:
         try:
             parsed = urlparse(uri)
             if not all([parsed.scheme == 'trojan', parsed.username, parsed.hostname, parsed.port]):
-                print(f"Skipping malformed Trojan URI: {uri}", file=sys.stderr)
+                logger.warning(f"Skipping malformed Trojan URI: {uri}")
                 return None
 
             query_params = parse_qs(parsed.query)
@@ -148,7 +149,7 @@ class ProxyParser:
                 "raw_uri": uri,
             }
         except (ValueError, AttributeError) as e:
-            print(f"Error parsing Trojan URI: {uri}. Error: {e}", file=sys.stderr)
+            logger.error(f"Error parsing Trojan URI: {uri}. Error: {e}")
             return None
 
     @staticmethod
@@ -205,7 +206,7 @@ class ProxyParser:
             # Silently skip malformed SS links to avoid log noise
             return None
         except Exception as e:
-            # print(f"Error parsing Shadowsocks URI: {uri}. Error: {e}", file=sys.stderr)
+            # logger.error(f"Error parsing Shadowsocks URI: {uri}. Error: {e}")
             return None
 
     @staticmethod
@@ -222,7 +223,7 @@ class ProxyParser:
             port = parsed.port
 
             if not all([host, port, auth]):
-                print(f"Skipping malformed Hysteria 2 URI: {uri}", file=sys.stderr)
+                logger.warning(f"Skipping malformed Hysteria 2 URI: {uri}")
                 return None
 
             query_params = parse_qs(parsed.query)
@@ -240,5 +241,5 @@ class ProxyParser:
                 "raw_uri": uri,
             }
         except (ValueError, AttributeError) as e:
-            print(f"Error parsing Hysteria 2 URI: {uri}. Error: {e}", file=sys.stderr)
+            logger.error(f"Error parsing Hysteria 2 URI: {uri}. Error: {e}")
             return None

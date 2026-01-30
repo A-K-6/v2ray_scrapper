@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from core.config import settings
+from core.logger import logger
 from models.server import ServerResponse
 from service.xray_service import XrayService
 from service.subscription_service import SubscriptionService
@@ -124,7 +125,7 @@ async def get_site_specific_subscription(
     if not successful_servers:
         raise HTTPException(status_code=404, detail=f"No servers could successfully access {url}.")
 
-    print(f"Found {len(successful_servers)} servers that can access {url}.")
+    logger.info(f"Found {len(successful_servers)} servers that can access {url}.")
     raw_links = [s["raw_uri"] for s in successful_servers]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
@@ -134,6 +135,6 @@ if __name__ == "__main__":
     # Basic check
     import os
     if not os.path.exists(settings.XRAY_PATH):
-        print(f"WARNING: Xray executable not found at '{settings.XRAY_PATH}'. App may not function correctly.", file=sys.stderr)
+        logger.warning(f"Xray executable not found at '{settings.XRAY_PATH}'. App may not function correctly.")
     
     uvicorn.run(app, host=settings.UVICORN_HOST, port=settings.UVICORN_PORT)
