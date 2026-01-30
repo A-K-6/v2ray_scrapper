@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import sys
+import re
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse, parse_qs
 
@@ -13,6 +14,10 @@ class ProxyParser:
         """
         Detects the protocol and parses the given URI.
         """
+        uri = uri.strip()
+        uri = re.sub(r'\s+([#?])', r'\1', uri)
+        if not uri:
+            return None
         if uri.startswith("vless://"):
             return self._parse_vless_uri(uri)
         elif uri.startswith("vmess://"):
@@ -21,13 +26,13 @@ class ProxyParser:
             return self._parse_trojan_uri(uri)
         elif uri.startswith("ss://"):
             return self._parse_ss_uri(uri)
-        elif uri.startswith("hy2://"):
+        elif uri.startswith("hy2://") or uri.startswith("hysteria2://"):
             return self._parse_hy2_uri(uri)
         elif uri.startswith("ssr://"):
             # SSR is not supported by standard Xray core, skip quietly
             return None
         else:
-            print(f"Unsupported URI scheme: {uri}", file=sys.stderr)
+            # print(f"Unsupported URI scheme: {uri}", file=sys.stderr)
             return None
 
     @staticmethod

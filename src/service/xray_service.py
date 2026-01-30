@@ -79,8 +79,25 @@ class XrayService:
                         stream_settings["wsSettings"]["host"] = ws_host
                 outbound_config = {"protocol": "trojan", "settings": {"servers": server_config}, "streamSettings": stream_settings}
             elif protocol == "shadowsocks":
-                server_config = [{"address": server["address"], "port": server["port"], "method": server["method"], "password": server["password"]}]
+                # List of supported AEAD ciphers in modern Xray
+                supported_methods = [
+                    "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", 
+                    "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm"
+                ]
+                
+                method = server.get("method", "")
+                if method not in supported_methods:
+                    # print(f"Skipping unsupported SS method: {method}", file=sys.stderr)
+                    continue # Skip this server so it doesn't break the config
+
+                server_config = [{
+                    "address": server["address"], 
+                    "port": server["port"], 
+                    "method": method, 
+                    "password": server["password"]
+                }]
                 outbound_config = {"protocol": "shadowsocks", "settings": {"servers": server_config}}
+
             elif protocol == "hysteria2":
                 server_info = {
                     "address": server["address"],
