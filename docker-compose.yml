@@ -18,6 +18,9 @@ services:
       - XRAY_ASSETS_PATH=/usr/local/bin
       - REDIS_HOST=redis
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     depends_on:
       - redis
 

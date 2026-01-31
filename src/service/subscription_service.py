@@ -206,7 +206,8 @@ class SubscriptionService:
                     user_name=self.settings.GITHUB_USER,
                     user_email=self.settings.GITHUB_EMAIL,
                     repo_dir=self.settings.GITHUB_REPO_DIR,
-                    branch=self.settings.GITHUB_BRANCH
+                    branch=self.settings.GITHUB_BRANCH,
+                    settings=self.settings
                 )
                 await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
             except Exception as e:
@@ -257,7 +258,8 @@ class SubscriptionService:
                 user_name=self.settings.GITHUB_USER,
                 user_email=self.settings.GITHUB_EMAIL,
                 repo_dir=self.settings.GITHUB_REPO_DIR,
-                branch=branch
+                branch=branch,
+                settings=self.settings
             )
             logger.info(f"  Pushing {filename} to GitHub branch {branch}...")
             await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)

@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     GITHUB_FILENAME: str = Field(default="subscription.txt")
     GITHUB_REPO_DIR: str = Field(default="/app/subscription_repo")
 
+    # Git Proxy Settings (Optional)
+    GIT_HTTP_PROXY: str = Field(default="")
+    GIT_HTTPS_PROXY: str = Field(default="")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

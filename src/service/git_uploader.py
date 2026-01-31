@@ -4,7 +4,7 @@ import sys
 from loguru import logger
 
 class GitUploader:
-    def __init__(self, repo_url: str, token: str, user_name: str, user_email: str, repo_dir: str, branch: str = "main"):
+    def __init__(self, repo_url: str, token: str, user_name: str, user_email: str, repo_dir: str, branch: str = "main", settings=None):
         # Embed the token into the URL for authentication
         if token and "@" not in repo_url:
              self.repo_url = repo_url.replace("https://", f"https://{token}@")
@@ -15,8 +15,19 @@ class GitUploader:
         self.user_email = user_email
         self.branch = branch
         self.repo_dir = repo_dir
+        self.settings = settings
 
     def _run_command(self, command: list, cwd: str = None):
+        # Prepare environment with proxy if configured
+        env = os.environ.copy()
+        if self.settings:
+            if self.settings.GIT_HTTP_PROXY:
+                env["HTTP_PROXY"] = self.settings.GIT_HTTP_PROXY
+                env["http_proxy"] = self.settings.GIT_HTTP_PROXY
+            if self.settings.GIT_HTTPS_PROXY:
+                env["HTTPS_PROXY"] = self.settings.GIT_HTTPS_PROXY
+                env["https_proxy"] = self.settings.GIT_HTTPS_PROXY
+
         try:
             result = subprocess.run(
                 command, 
@@ -24,7 +35,8 @@ class GitUploader:
                 check=True, 
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE, 
-                text=True
+                text=True,
+                env=env
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
@@ -42,9 +54,30 @@ class GitUploader:
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
             
-            # Remove --single-branch to allow switching branches later
-            self._run_command(["git", "clone", "-b", self.branch, self.repo_url, self.repo_dir])
-            
+            # Retry loop for clone
+            # We use --depth 1 (shallow clone) to avoid downloading history of large repos (10k+ commits)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Cloning repository (Attempt {attempt+1}/{max_retries})...")
+                    self._run_command(["git", "clone", "--depth", "1", "-b", self.branch, self.repo_url, self.repo_dir])
+                    break
+                except Exception as e:
+                    logger.warning(f"Clone failed (attempt {attempt+1}/{max_retries}): {e}")
+                    # Clean up failed clone attempt
+                    if os.path.exists(self.repo_dir):
+                        import shutil
+                        shutil.rmtree(self.repo_dir)
+                    
+                    if attempt < max_retries - 1:
+                        import time
+                        wait_time = 5 * (attempt + 1)
+                        logger.info(f"Waiting {wait_time}s before retrying...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error("All clone attempts failed. Please check your network connection.")
+                        raise
+
             # Configure user identity
             self._run_command(["git", "config", "user.name", self.user_name], cwd=self.repo_dir)
             self._run_command(["git", "config", "user.email", self.user_email], cwd=self.repo_dir)
