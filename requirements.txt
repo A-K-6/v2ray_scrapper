@@ -26,3 +26,6 @@ yarl==1.20.1
 geoip2==4.8.0
 redis==5.2.1
 loguru==0.7.2
+PyYAML==6.0.2
+SQLAlchemy==2.0.25
+aiosqlite==0.19.0

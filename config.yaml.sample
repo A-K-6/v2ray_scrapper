@@ -1,0 +1,28 @@
+# --- Worker Configuration ---
+worker:
+  id: "worker-01"  # Optional identifier for this instance
+
+# --- Git Configuration ---
+git:
+  branch: "main"   # The branch to push to. Multiple workers can safely share this.
+  push_interval: 600
+
+# --- Site Specific Partitioning ---
+# Define which sites THIS worker is responsible for.
+# Each site results in a separate file in the Git repo.
+sites:
+  - url: "https://www.google.com"
+    filename: "google_valid.txt"
+    enabled: true
+
+  - url: "https://www.youtube.com"
+    filename: "youtube_valid.txt"
+    enabled: true
+
+  - url: "https://www.instagram.com"
+    filename: "instagram_valid.txt"
+    enabled: true
+
+  - url: "https://www.openai.com"
+    filename: "openai_valid.txt"
+    enabled: false  # Disabled for now

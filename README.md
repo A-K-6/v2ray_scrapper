@@ -8,6 +8,8 @@ This tool actively scrapes V2Ray subscription links, validates them, tests their
 
 -   **Multi-Protocol Support:** Parses VLESS, VMess, Trojan, and Shadowsocks.
 -   **Real-World Testing:** Uses the actual `xray` binary to establish connections and measure "Real Delay" (not just Ping).
+-   **YAML-based Site Partitioning:** Assign specific target sites to different worker instances to avoid Git conflicts and data fragmentation.
+-   **Structured Logging:** Professional logging using `loguru` for better observability and debugging.
 -   **Automated Health Checks:** continuously tests servers in the background and removes dead ones.
 -   **Site-Specific Testing:** Verify if servers can access specific targets (e.g., Google, YouTube).
 -   **Smart Caching:** In-memory caching for high performance and reduced load.
@@ -51,6 +53,7 @@ The API will be available at `http://localhost:8084`.
 
 ## 🔧 Configuration
 
+### Environment Variables (.env)
 Configuration is managed via environment variables (or the `.env` file).
 
 | Variable | Description | Default |
@@ -63,6 +66,25 @@ Configuration is managed via environment variables (or the `.env` file).
 | `GITHUB_PUSH_ENABLED` | Enable pushing results to a Git repo. | `False` |
 | `GITHUB_TOKEN` | GitHub Personal Access Token (if enabled). | - |
 | `GITHUB_REPO_URL` | Target Git repository URL. | - |
+
+### Advanced Site Configuration (config.yaml)
+For complex setups with multiple workers, use a `config.yaml` file in the root directory. This allows you to define exactly which sites each worker instance should check and what the output filenames should be.
+
+```yaml
+# config.yaml
+git:
+  branch: "main"  # Multiple workers can safely share a branch
+
+sites:
+  - url: "https://www.google.com"
+    filename: "google_valid.txt"
+    enabled: true
+  
+  - url: "https://www.netflix.com"
+    filename: "netflix_valid.txt"
+    enabled: true
+```
+*Note: Site configurations in `config.yaml` override the `PRECHECK_SITES` environment variable.*
 
 ---
 

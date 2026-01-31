@@ -83,14 +83,14 @@ Configuration is handled via environment variables, loaded through Pydantic `Bas
 
 ## Improvement Workflow (Ideas)
 
-The `ideas/` directory contains proposals for project improvements, features, and refactoring.
+The `ideas/` directory is organized into `todo/` (planned) and `done/` (completed).
 
-1.  **Selection:** Pick a file from `ideas/` (e.g., `001-structured-logging.md`).
+1.  **Selection:** Pick a file from `ideas/todo/` (e.g., `003-database-persistence.md`).
 2.  **Implementation:** Follow the "Implementation Steps" defined in the markdown file.
-3.  **Completion:** Once the feature is verified, update the markdown file:
+3.  **Completion:** Once the feature is verified:
     *   Add `(Completed)` to the title.
     *   Add a `## Status` section at the top with the completion date.
-    *   Example: `## Status` -> `**Implemented** on YYYY-MM-DD.`
+    *   Move the file to `ideas/done/`.
 
 ## API Endpoints
 

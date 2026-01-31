@@ -10,6 +10,7 @@ import aiohttp
 from loguru import logger
 
 from core.config import Settings
+from core.yaml_config import load_yaml_config
 from service.git_uploader import GitUploader
 from service.parse_uri import ProxyParser
 from service.xray_service import XrayService
@@ -24,6 +25,7 @@ class SubscriptionService:
         self.parser = ProxyParser()
         self.geoip_service = GeoIPService(settings.GEOIP_DB_PATH)
         self.storage_service = StorageService(settings)
+        self.app_config = load_yaml_config()
         
         # State
         self._cached_all: Optional[List[Dict]] = None
@@ -211,43 +213,56 @@ class SubscriptionService:
                 logger.error(f"Main GitHub push failed: {e}")
 
     async def _handle_precheck_sites(self, top_servers: List[Dict]):
-        if self.settings.PRECHECK_SITES and top_servers:
-            logger.info(f"Pre-warming site cache for: {self.settings.PRECHECK_SITES}")
-            for site_url in self.settings.PRECHECK_SITES:
-                logger.info(f"  Pre-checking {site_url}...")
+        # Priority: YAML config > ENV variable
+        sites_to_check = []
+        
+        if self.app_config.sites:
+             sites_to_check = [s for s in self.app_config.sites if s.enabled]
+        elif self.settings.PRECHECK_SITES:
+             # Backward compatibility: create dummy site configs from env
+             from core.yaml_config import SiteConfig
+             for url in self.settings.PRECHECK_SITES:
+                 parsed = urlparse(url)
+                 safe_name = parsed.hostname.replace(".", "_") if parsed.hostname else "site"
+                 sites_to_check.append(SiteConfig(url=url, filename=f"{safe_name}.txt"))
+
+        if sites_to_check and top_servers:
+            logger.info(f"Pre-warming site cache for {len(sites_to_check)} sites...")
+            for site in sites_to_check:
+                logger.info(f"  Pre-checking {site.url}...")
                 try:
-                    valid_servers = await self.xray_service.evaluate_site_accessibility(site_url, top_servers)
+                    valid_servers = await self.xray_service.evaluate_site_accessibility(site.url, top_servers)
                     
                     async with self._site_cache_lock:
-                        self._site_cache[site_url] = (time.time(), valid_servers)
-                    logger.info(f"  Cached {len(valid_servers)} servers for {site_url}")
+                        self._site_cache[site.url] = (time.time(), valid_servers)
+                    logger.info(f"  Cached {len(valid_servers)} servers for {site.url}")
 
                     if self.settings.GITHUB_PUSH_ENABLED and valid_servers:
-                        await self._push_site_specific_list(site_url, valid_servers)
+                        # Use the specific filename from config
+                        await self._push_site_specific_list(site.filename, valid_servers)
 
                 except Exception as e:
-                    logger.error(f"  Failed to pre-check {site_url}: {e}")
+                    logger.error(f"  Failed to pre-check {site.url}: {e}")
 
-    async def _push_site_specific_list(self, site_url: str, valid_servers: List[Dict]):
+    async def _push_site_specific_list(self, filename: str, valid_servers: List[Dict]):
         try:
-            parsed = urlparse(site_url)
-            safe_hostname = parsed.hostname.replace(".", "_") if parsed.hostname else "unknown_site"
-            site_filename = f"{safe_hostname}.txt"
-
             site_content = "\n".join([s["raw_uri"] for s in valid_servers])
             
+            # Use git branch from YAML if available, else env
+            branch = self.app_config.git.branch if self.app_config.git.branch else self.settings.GITHUB_BRANCH
+
             uploader = GitUploader(
                 repo_url=self.settings.GITHUB_REPO_URL,
                 token=self.settings.GITHUB_TOKEN,
                 user_name=self.settings.GITHUB_USER,
                 user_email=self.settings.GITHUB_EMAIL,
                 repo_dir=self.settings.GITHUB_REPO_DIR,
-                branch=self.settings.GITHUB_BRANCH
+                branch=branch
             )
-            logger.info(f"  Pushing {site_filename} to GitHub...")
-            await asyncio.to_thread(uploader.update_file_and_push, site_filename, site_content)
+            logger.info(f"  Pushing {filename} to GitHub branch {branch}...")
+            await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)
         except Exception as push_err:
-            logger.error(f"  Failed to push file for {site_url}: {push_err}")
+            logger.error(f"  Failed to push file {filename}: {push_err}")
 
     async def start_periodic_update(self):
         await self.geoip_service.initialize()

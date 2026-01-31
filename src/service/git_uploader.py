@@ -41,8 +41,9 @@ class GitUploader:
             parent_dir = os.path.dirname(self.repo_dir)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
-                
-            self._run_command(["git", "clone", "-b", self.branch, "--single-branch", self.repo_url, self.repo_dir])
+            
+            # Remove --single-branch to allow switching branches later
+            self._run_command(["git", "clone", "-b", self.branch, self.repo_url, self.repo_dir])
             
             # Configure user identity
             self._run_command(["git", "config", "user.name", self.user_name], cwd=self.repo_dir)
@@ -58,6 +59,18 @@ class GitUploader:
                     shutil.rmtree(self.repo_dir)
                     self.setup_repo()
                     return
+
+                # Fetch all remotes to ensure we know about all branches
+                self._run_command(["git", "fetch", "--all"], cwd=self.repo_dir)
+
+                # Checkout the target branch
+                # This handles switching from 'main' to 'tci_ir' etc.
+                # If branch exists locally, it switches. If not, it creates it tracking origin.
+                try:
+                    self._run_command(["git", "checkout", self.branch], cwd=self.repo_dir)
+                except Exception:
+                    # If checkout fails, maybe it doesn't exist locally. Try creating it.
+                    self._run_command(["git", "checkout", "-b", self.branch, f"origin/{self.branch}"], cwd=self.repo_dir)
 
                 self._run_command(["git", "pull", "--rebase", "origin", self.branch], cwd=self.repo_dir)
             except Exception as e:
@@ -75,26 +88,44 @@ class GitUploader:
                      self.setup_repo()
 
     def update_file_and_push(self, filename: str, content: str):
-        try:
-            self.setup_repo()
-            
-            file_path = os.path.join(self.repo_dir, filename)
-            
-            # Write content to file
-            with open(file_path, "w") as f:
-                f.write(content)
-            
-            # Check status
-            status = self._run_command(["git", "status", "--porcelain"], cwd=self.repo_dir)
-            if not status:
-                logger.info(f"No changes to push for {filename}.")
-                return
+        self.setup_repo()
+        
+        file_path = os.path.join(self.repo_dir, filename)
+        
+        # Write content to file
+        with open(file_path, "w") as f:
+            f.write(content)
+        
+        # Check status
+        status = self._run_command(["git", "status", "--porcelain"], cwd=self.repo_dir)
+        if not status:
+            logger.info(f"No changes to push for {filename}.")
+            return
 
-            logger.info(f"Committing and pushing {filename}...")
-            self._run_command(["git", "add", filename], cwd=self.repo_dir)
+        logger.info(f"Committing {filename}...")
+        self._run_command(["git", "add", filename], cwd=self.repo_dir)
+        try:
             self._run_command(["git", "commit", "-m", f"Auto-update {filename}"], cwd=self.repo_dir)
-            self._run_command(["git", "push", "origin", self.branch], cwd=self.repo_dir)
-            logger.info(f"Push successful for {filename}!")
-            
-        except Exception as e:
-            logger.error(f"Failed to push to GitHub: {e}")
+        except Exception:
+            # If commit fails (e.g. empty commit race condition), just return
+            return
+
+        # Retry loop for push
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self._run_command(["git", "push", "origin", self.branch], cwd=self.repo_dir)
+                logger.info(f"Push successful for {filename}!")
+                return
+            except Exception as e:
+                logger.warning(f"Push failed (attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info("Retrying fetch and rebase...")
+                    try:
+                        self._run_command(["git", "pull", "--rebase", "origin", self.branch], cwd=self.repo_dir)
+                    except Exception as rebase_err:
+                        logger.error(f"Rebase failed during retry: {rebase_err}")
+                        # If rebase fails here, we might be in a bad state, but let's try next iteration or fail
+                        pass
+        
+        logger.error(f"Failed to push {filename} after {max_retries} attempts.")
