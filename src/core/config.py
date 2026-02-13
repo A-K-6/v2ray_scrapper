@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # Caching
     CACHE_INTERVAL_SECONDS: int = Field(default=900) # 15 minutes
     SITE_CACHE_TTL_SECONDS: int = Field(default=3600) # 1 hour
+    MAX_FAIL_COUNT: int = Field(default=3)
     
     # Redis
     REDIS_HOST: str = Field(default="localhost")

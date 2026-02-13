@@ -15,6 +15,7 @@ class Server(BaseModel):
     delay: int
     country_code: str = "UN"
     flag: str = "🇺🇳"
+    fail_count: int = 0
 
 class ServerResponse(BaseModel):
     count: int

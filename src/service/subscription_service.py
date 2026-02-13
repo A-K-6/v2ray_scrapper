@@ -30,6 +30,7 @@ class SubscriptionService:
         # State
         self._cached_all: Optional[List[Dict]] = None
         self._cached_top25: Optional[List[Dict]] = None
+        self._candidate_servers: List[Dict] = []
         self._cache_lock = asyncio.Lock()
         self._processing_lock = asyncio.Lock()
         
@@ -129,46 +130,86 @@ class SubscriptionService:
 
         return final_list
 
+    def _enrich_server(self, server: Dict, delay: float) -> Dict:
+        """Enriches a server with GeoIP info, remark, and URI."""
+        s_copy = server.copy()
+        s_copy["delay"] = round(delay)
+        
+        # GeoIP Lookup
+        ip = s_copy.get("address")
+        country_code, flag = self.geoip_service.get_country(ip)
+        s_copy["country_code"] = country_code
+        s_copy["flag"] = flag
+        
+        # Update Remark: "🇺🇸 US 78ms"
+        new_remark = f"{flag} {country_code} {s_copy['delay']}ms"
+        s_copy["remark"] = new_remark
+        
+        # Regenerate URI
+        s_copy["raw_uri"] = UriGenerator.generate(s_copy)
+        return s_copy
+
     async def compute_top_servers(self) -> List[Dict]:
         if not os.path.exists(self.settings.XRAY_PATH):
-             # This might happen if Xray is not installed yet or path is wrong
              logger.warning(f"Warning: Xray executable not found at {self.settings.XRAY_PATH}")
              
-        servers = await self.fetch_subscription_servers()
-        if not servers:
+        # 1. Fetch fresh servers from subscriptions
+        new_servers = await self.fetch_subscription_servers()
+        
+        # 2. Merge with existing candidates
+        # Use fingerprint to map candidates for easy lookup
+        candidates_map = {self._generate_fingerprint(s): s for s in self._candidate_servers}
+        
+        for s in new_servers:
+            fp = self._generate_fingerprint(s)
+            if fp not in candidates_map:
+                s["fail_count"] = 0
+                candidates_map[fp] = s
+            # If already exists, we keep the existing one (preserving its fail_count)
+
+        if not candidates_map:
             return []
 
+        all_candidates = list(candidates_map.values())
+        logger.info(f"Testing {len(all_candidates)} candidates (including {len(new_servers)} fresh)...")
+
+        # 3. Batch Test
         all_results = []
-        for i in range(0, len(servers), self.settings.BATCH_SIZE):
-            batch = servers[i : i + self.settings.BATCH_SIZE]
+        for i in range(0, len(all_candidates), self.settings.BATCH_SIZE):
+            batch = all_candidates[i : i + self.settings.BATCH_SIZE]
             logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1}...")
             batch_results = await self.xray_service.run_test_batch(batch)
             all_results.extend(batch_results)
 
-        successful = sorted([(s, d) for s, d in all_results if d <= self.settings.MAX_DELAY_MS], key=lambda item: item[1])
-        logger.info(f"Found {len(successful)} working servers.")
-        
-        enriched_servers = []
-        for server, delay in successful:
-            s_copy = server.copy()
-            s_copy["delay"] = round(delay)
-            
-            # GeoIP Lookup
-            ip = s_copy.get("address")
-            country_code, flag = self.geoip_service.get_country(ip)
-            s_copy["country_code"] = country_code
-            s_copy["flag"] = flag
-            
-            # Update Remark: "🇺🇸 US 78ms"
-            new_remark = f"{flag} {country_code} {s_copy['delay']}ms"
-            s_copy["remark"] = new_remark
-            
-            # Regenerate URI
-            s_copy["raw_uri"] = UriGenerator.generate(s_copy)
-            
-            enriched_servers.append(s_copy)
+        # 4. Process Results
+        currently_working = []
+        updated_candidates = []
 
-        return enriched_servers
+        for server, delay in all_results:
+            if delay <= self.settings.MAX_DELAY_MS:
+                # Success: reset fail count and mark as working
+                server["fail_count"] = 0
+                enriched = self._enrich_server(server, delay)
+                currently_working.append(enriched)
+                updated_candidates.append(server) # store the "clean" or "updated" version
+            else:
+                # Failure: increment fail count
+                server["fail_count"] = server.get("fail_count", 0) + 1
+                if server["fail_count"] < self.settings.MAX_FAIL_COUNT:
+                    updated_candidates.append(server)
+                else:
+                    logger.debug(f"Server {server.get('address')} reached max fail count and was removed.")
+
+        # Sort working servers by delay
+        currently_working.sort(key=lambda s: s["delay"])
+        
+        logger.info(f"Test cycle complete. Working: {len(currently_working)}, Candidates: {len(updated_candidates)}")
+
+        # 5. Update state and persistence
+        self._candidate_servers = updated_candidates
+        await self.storage_service.save_servers("candidate_servers", updated_candidates)
+
+        return currently_working
 
     async def update_cache(self):
         """Updates the cache with the top servers."""
@@ -276,7 +317,11 @@ class SubscriptionService:
              async with self._cache_lock:
                  self._cached_all = cached
                  self._cached_top25 = cached[:25]
-             logger.info(f"Loaded {len(cached)} servers from persistent storage.")
+             logger.info(f"Loaded {len(cached)} working servers from persistent storage.")
+
+        self._candidate_servers = await self.storage_service.load_servers("candidate_servers")
+        if self._candidate_servers:
+            logger.info(f"Loaded {len(self._candidate_servers)} candidate servers from persistent storage.")
 
         while True:
             logger.info("Periodic cache update started...")
