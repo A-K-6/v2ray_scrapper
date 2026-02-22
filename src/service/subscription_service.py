@@ -237,30 +237,37 @@ class SubscriptionService:
     async def _handle_github_push(self, top_servers: List[Dict]):
         if self.settings.GITHUB_PUSH_ENABLED and self.settings.GITHUB_TOKEN and self.settings.GITHUB_REPO_URL and top_servers:
             logger.info("Starting GitHub push for main subscription...")
-            try:
-                raw_links = [s["raw_uri"] for s in top_servers]
-                content = "\n".join(raw_links)
-                
-                # SELF-PROXY: Pick the best server to tunnel the git push
-                # We use a high port to avoid conflict with testing ports
+            
+            # Use the top 5 servers as potential proxies (rotating if failure occurs)
+            max_proxy_attempts = min(5, len(top_servers))
+            raw_links = [s["raw_uri"] for s in top_servers]
+            content = "\n".join(raw_links)
+            
+            for i in range(max_proxy_attempts):
+                best_server = top_servers[i]
                 proxy_port = 25000
-                best_server = top_servers[0]
+                logger.info(f"Using self-proxy attempt {i+1}/{max_proxy_attempts} (port {proxy_port}) for GitHub push.")
                 
-                async with self.xray_service.run_single_proxy(best_server, proxy_port):
-                    logger.info(f"Using self-proxy (port {proxy_port}) for GitHub push.")
-                    uploader = GitUploader(
-                        repo_url=self.settings.GITHUB_REPO_URL,
-                        token=self.settings.GITHUB_TOKEN,
-                        user_name=self.settings.GITHUB_USER,
-                        user_email=self.settings.GITHUB_EMAIL,
-                        repo_dir=self.settings.GITHUB_REPO_DIR,
-                        branch=self.settings.GITHUB_BRANCH,
-                        settings=self.settings,
-                        proxy_url=f"socks5://127.0.0.1:{proxy_port}"
-                    )
-                    await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
-            except Exception as e:
-                logger.error(f"Main GitHub push failed: {e}")
+                try:
+                    async with self.xray_service.run_single_proxy(best_server, proxy_port):
+                        uploader = GitUploader(
+                            repo_url=self.settings.GITHUB_REPO_URL,
+                            token=self.settings.GITHUB_TOKEN,
+                            user_name=self.settings.GITHUB_USER,
+                            user_email=self.settings.GITHUB_EMAIL,
+                            repo_dir=self.settings.GITHUB_REPO_DIR,
+                            branch=self.settings.GITHUB_BRANCH,
+                            settings=self.settings,
+                            proxy_url=f"socks5://127.0.0.1:{proxy_port}"
+                        )
+                        await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
+                        return # Success!
+                except Exception as e:
+                    logger.warning(f"GitHub push attempt {i+1} failed with server {best_server.get('remark', 'unknown')}: {e}")
+                    if i < max_proxy_attempts - 1:
+                        logger.info("Retrying with next best server...")
+                    else:
+                        logger.error("All GitHub push attempts with self-proxy failed.")
 
     async def _handle_precheck_sites(self, top_servers: List[Dict]):
         # Priority: YAML config > ENV variable
@@ -297,29 +304,40 @@ class SubscriptionService:
     async def _push_site_specific_list(self, filename: str, valid_servers: List[Dict]):
         try:
             site_content = "\n".join([s["raw_uri"] for s in valid_servers])
-            
             # Use git branch from YAML if available, else env
             branch = self.app_config.git.branch if self.app_config.git.branch else self.settings.GITHUB_BRANCH
-
-            # Use a working proxy to push. Pick the best one from valid_servers.
-            proxy_port = 25001
-            best_server = valid_servers[0]
             
-            async with self.xray_service.run_single_proxy(best_server, proxy_port):
-                logger.info(f"  Pushing {filename} to GitHub branch {branch} via self-proxy on port {proxy_port}...")
-                uploader = GitUploader(
-                    repo_url=self.settings.GITHUB_REPO_URL,
-                    token=self.settings.GITHUB_TOKEN,
-                    user_name=self.settings.GITHUB_USER,
-                    user_email=self.settings.GITHUB_EMAIL,
-                    repo_dir=self.settings.GITHUB_REPO_DIR,
-                    branch=branch,
-                    settings=self.settings,
-                    proxy_url=f"socks5://127.0.0.1:{proxy_port}"
-                )
-                await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)
+            # Use top servers as potential proxies (rotating if failure occurs)
+            max_proxy_attempts = min(5, len(valid_servers))
+            
+            for i in range(max_proxy_attempts):
+                best_server = valid_servers[i]
+                proxy_port = 25001
+                logger.info(f"  Pushing {filename} via self-proxy attempt {i+1}/{max_proxy_attempts} on port {proxy_port}...")
+                
+                try:
+                    async with self.xray_service.run_single_proxy(best_server, proxy_port):
+                        uploader = GitUploader(
+                            repo_url=self.settings.GITHUB_REPO_URL,
+                            token=self.settings.GITHUB_TOKEN,
+                            user_name=self.settings.GITHUB_USER,
+                            user_email=self.settings.GITHUB_EMAIL,
+                            repo_dir=self.settings.GITHUB_REPO_DIR,
+                            branch=branch,
+                            settings=self.settings,
+                            proxy_url=f"socks5://127.0.0.1:{proxy_port}"
+                        )
+                        await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)
+                        return # Success!
+                except Exception as e:
+                    logger.warning(f"  Push failed for {filename} with server {best_server.get('remark', 'unknown')}: {e}")
+                    if i < max_proxy_attempts - 1:
+                        logger.info(f"  Retrying {filename} push with next server...")
+                    else:
+                        logger.error(f"  All push attempts for {filename} failed.")
+
         except Exception as push_err:
-            logger.error(f"  Failed to push file {filename}: {push_err}")
+            logger.error(f"  Critical failure in _push_site_specific_list: {push_err}")
 
     async def start_periodic_update(self):
         await self.geoip_service.initialize()

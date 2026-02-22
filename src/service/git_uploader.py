@@ -24,23 +24,40 @@ class GitUploader:
         final_command = list(command)
         
         if self.settings:
-            # Add SSL verification bypass if configured
+            # 1. Add SSL verification bypass if configured
             if self.settings.GIT_SSL_NO_VERIFY:
-                 # Insert -c http.sslVerify=false after 'git' but before the subcommand
                  if final_command[0] == "git":
                       final_command.insert(1, "-c")
                       final_command.insert(2, "http.sslVerify=false")
             
-            # Use dynamic proxy if provided, otherwise fall back to settings
+            # 2. Add Explicit Proxy Configuration to the Git command
+            # This is more reliable than environment variables for Git
             git_proxy = self.proxy_url
             if not git_proxy and self.settings.GIT_HTTP_PROXY:
                 git_proxy = self.settings.GIT_HTTP_PROXY
             
+            if git_proxy and final_command[0] == "git":
+                # Find the position to insert -c arguments
+                # If we already inserted sslVerify, we insert after that
+                insert_idx = 1
+                if self.settings.GIT_SSL_NO_VERIFY:
+                    insert_idx = 3
+                
+                # SOCKS5 proxies need the socks5h:// prefix for Git to handle DNS resolution through the proxy
+                proxy_to_use = git_proxy
+                if proxy_to_use.startswith("socks5://"):
+                    proxy_to_use = proxy_to_use.replace("socks5://", "socks5h://")
+
+                final_command.insert(insert_idx, "-c")
+                final_command.insert(insert_idx + 1, f"http.proxy={proxy_to_use}")
+                final_command.insert(insert_idx + 2, "-c")
+                final_command.insert(insert_idx + 3, f"https.proxy={proxy_to_use}")
+
+            # 3. Fallback: also set environment variables for sub-processes or other tools
             if git_proxy:
                 env["HTTP_PROXY"] = git_proxy
                 env["HTTPS_PROXY"] = git_proxy
                 env["ALL_PROXY"] = git_proxy
-                # Also set lowercase for some tools
                 env["http_proxy"] = git_proxy
                 env["https_proxy"] = git_proxy
                 env["all_proxy"] = git_proxy
@@ -53,9 +70,13 @@ class GitUploader:
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE, 
                 text=True,
-                env=env
+                env=env,
+                timeout=300 # 5 minute timeout for git operations
             )
             return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            logger.error(f"Git command timed out after 300s: {' '.join(final_command)}")
+            raise
         except subprocess.CalledProcessError as e:
             # Don't print the error if it's just a "nothing to commit" status
             if "nothing to commit" not in e.stderr:
@@ -73,7 +94,7 @@ class GitUploader:
             
             # Retry loop for clone
             # We use --depth 1 (shallow clone) to avoid downloading history of large repos (10k+ commits)
-            max_retries = 3
+            max_retries = 2
             for attempt in range(max_retries):
                 try:
                     logger.info(f"Cloning repository (Attempt {attempt+1}/{max_retries})...")
