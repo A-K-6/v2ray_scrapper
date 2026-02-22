@@ -294,3 +294,8 @@ class XrayService:
                 continue
         
         return successful_servers
+
+    def run_single_proxy(self, server: Dict[str, Any], port: int):
+        """Returns a context manager that runs a single server as a proxy on the given port."""
+        config = self.build_xray_config_for_batch([server], port)
+        return XrayProcessContext(self.settings, config, [port], timeout=10.0)

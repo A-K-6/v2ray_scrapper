@@ -4,7 +4,7 @@ import sys
 from loguru import logger
 
 class GitUploader:
-    def __init__(self, repo_url: str, token: str, user_name: str, user_email: str, repo_dir: str, branch: str = "main", settings=None):
+    def __init__(self, repo_url: str, token: str, user_name: str, user_email: str, repo_dir: str, branch: str = "main", settings=None, proxy_url: str = None):
         # Embed the token into the URL for authentication
         if token and "@" not in repo_url:
              self.repo_url = repo_url.replace("https://", f"https://{token}@")
@@ -16,21 +16,38 @@ class GitUploader:
         self.branch = branch
         self.repo_dir = repo_dir
         self.settings = settings
+        self.proxy_url = proxy_url
 
     def _run_command(self, command: list, cwd: str = None):
         # Prepare environment with proxy if configured
         env = os.environ.copy()
+        final_command = list(command)
+        
         if self.settings:
-            if self.settings.GIT_HTTP_PROXY:
-                env["HTTP_PROXY"] = self.settings.GIT_HTTP_PROXY
-                env["http_proxy"] = self.settings.GIT_HTTP_PROXY
-            if self.settings.GIT_HTTPS_PROXY:
-                env["HTTPS_PROXY"] = self.settings.GIT_HTTPS_PROXY
-                env["https_proxy"] = self.settings.GIT_HTTPS_PROXY
-
+            # Add SSL verification bypass if configured
+            if self.settings.GIT_SSL_NO_VERIFY:
+                 # Insert -c http.sslVerify=false after 'git' but before the subcommand
+                 if final_command[0] == "git":
+                      final_command.insert(1, "-c")
+                      final_command.insert(2, "http.sslVerify=false")
+            
+            # Use dynamic proxy if provided, otherwise fall back to settings
+            git_proxy = self.proxy_url
+            if not git_proxy and self.settings.GIT_HTTP_PROXY:
+                git_proxy = self.settings.GIT_HTTP_PROXY
+            
+            if git_proxy:
+                env["HTTP_PROXY"] = git_proxy
+                env["HTTPS_PROXY"] = git_proxy
+                env["ALL_PROXY"] = git_proxy
+                # Also set lowercase for some tools
+                env["http_proxy"] = git_proxy
+                env["https_proxy"] = git_proxy
+                env["all_proxy"] = git_proxy
+        
         try:
             result = subprocess.run(
-                command, 
+                final_command, 
                 cwd=cwd, 
                 check=True, 
                 stdout=subprocess.PIPE, 
@@ -42,7 +59,7 @@ class GitUploader:
         except subprocess.CalledProcessError as e:
             # Don't print the error if it's just a "nothing to commit" status
             if "nothing to commit" not in e.stderr:
-                logger.error(f"Git command failed: {' '.join(command)}\nError: {e.stderr}")
+                logger.error(f"Git command failed: {' '.join(final_command)}\nError: {e.stderr}")
             raise
 
     def setup_repo(self):

@@ -1,0 +1,6 @@
+{
+  "experimental": {
+    "enableAgents": true,
+    "plan": true
+  }
+}

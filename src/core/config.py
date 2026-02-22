@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     # Git Proxy Settings (Optional)
     GIT_HTTP_PROXY: str = Field(default="")
     GIT_HTTPS_PROXY: str = Field(default="")
+    GIT_SSL_NO_VERIFY: bool = Field(default=False)
+    GIT_SELF_PROXY_ENABLED: bool = Field(default=True)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

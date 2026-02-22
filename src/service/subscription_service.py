@@ -241,16 +241,24 @@ class SubscriptionService:
                 raw_links = [s["raw_uri"] for s in top_servers]
                 content = "\n".join(raw_links)
                 
-                uploader = GitUploader(
-                    repo_url=self.settings.GITHUB_REPO_URL,
-                    token=self.settings.GITHUB_TOKEN,
-                    user_name=self.settings.GITHUB_USER,
-                    user_email=self.settings.GITHUB_EMAIL,
-                    repo_dir=self.settings.GITHUB_REPO_DIR,
-                    branch=self.settings.GITHUB_BRANCH,
-                    settings=self.settings
-                )
-                await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
+                # SELF-PROXY: Pick the best server to tunnel the git push
+                # We use a high port to avoid conflict with testing ports
+                proxy_port = 25000
+                best_server = top_servers[0]
+                
+                async with self.xray_service.run_single_proxy(best_server, proxy_port):
+                    logger.info(f"Using self-proxy (port {proxy_port}) for GitHub push.")
+                    uploader = GitUploader(
+                        repo_url=self.settings.GITHUB_REPO_URL,
+                        token=self.settings.GITHUB_TOKEN,
+                        user_name=self.settings.GITHUB_USER,
+                        user_email=self.settings.GITHUB_EMAIL,
+                        repo_dir=self.settings.GITHUB_REPO_DIR,
+                        branch=self.settings.GITHUB_BRANCH,
+                        settings=self.settings,
+                        proxy_url=f"socks5://127.0.0.1:{proxy_port}"
+                    )
+                    await asyncio.to_thread(uploader.update_file_and_push, self.settings.GITHUB_FILENAME, content)
             except Exception as e:
                 logger.error(f"Main GitHub push failed: {e}")
 
@@ -293,17 +301,23 @@ class SubscriptionService:
             # Use git branch from YAML if available, else env
             branch = self.app_config.git.branch if self.app_config.git.branch else self.settings.GITHUB_BRANCH
 
-            uploader = GitUploader(
-                repo_url=self.settings.GITHUB_REPO_URL,
-                token=self.settings.GITHUB_TOKEN,
-                user_name=self.settings.GITHUB_USER,
-                user_email=self.settings.GITHUB_EMAIL,
-                repo_dir=self.settings.GITHUB_REPO_DIR,
-                branch=branch,
-                settings=self.settings
-            )
-            logger.info(f"  Pushing {filename} to GitHub branch {branch}...")
-            await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)
+            # Use a working proxy to push. Pick the best one from valid_servers.
+            proxy_port = 25001
+            best_server = valid_servers[0]
+            
+            async with self.xray_service.run_single_proxy(best_server, proxy_port):
+                logger.info(f"  Pushing {filename} to GitHub branch {branch} via self-proxy on port {proxy_port}...")
+                uploader = GitUploader(
+                    repo_url=self.settings.GITHUB_REPO_URL,
+                    token=self.settings.GITHUB_TOKEN,
+                    user_name=self.settings.GITHUB_USER,
+                    user_email=self.settings.GITHUB_EMAIL,
+                    repo_dir=self.settings.GITHUB_REPO_DIR,
+                    branch=branch,
+                    settings=self.settings,
+                    proxy_url=f"socks5://127.0.0.1:{proxy_port}"
+                )
+                await asyncio.to_thread(uploader.update_file_and_push, filename, site_content)
         except Exception as push_err:
             logger.error(f"  Failed to push file {filename}: {push_err}")
 
