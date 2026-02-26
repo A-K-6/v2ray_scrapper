@@ -1,101 +1,50 @@
-# V2Ray Scrapper & Tester
+# V2Ray Scrapper & Tester - Gemini Context
 
-## Project Overview
+## Overview
+The **V2Ray Scrapper & Tester** is an automated service for aggregating, validating, and distributing high-performance V2Ray server configurations using the Xray core.
+- **Phase:** Active / Maintenance (Version 1.1).
+- **Core Tech:** Python 3.11+, FastAPI, Xray Core, asyncio, aiohttp, Pydantic, Docker.
+- **Key Features:** Multi-protocol parsing (VLESS, VMess, Trojan, SS), real-latency testing, Geo-IP enrichment, and automated Git distribution.
 
-The **V2Ray Scrapper & Tester** is a robust, automated service designed to aggregate, validate, and distribute high-performance V2Ray server configurations. It addresses the issue of unreliable public proxy lists by actively scraping subscription links and performing real-world latency tests using the **Xray core**. This ensures that only functional, high-speed servers are delivered to end-users or downstream applications.
+## Documentation Structure
+- **Product Requirements:** `PRD.md` (Includes Roadmap & Specs)
+- **Ideas (Todo):** `ideas/todo/`
+- **Ideas (Done):** `ideas/done/`
+- **Development Log:** `devlog.md`
+- **Configuration Samples:** `.env.sample`, `config.yaml.sample`
 
-### Key Features
-*   **Multi-Protocol Parsing:** Supports VLESS, VMess, Trojan, and Shadowsocks.
-*   **Real-Latency Testing:** Uses the actual `xray` binary to establish connections and measure real delay (HTTP HEAD requests), providing accuracy superior to simple ICMP pings.
-*   **Automated Health Checks:** Continuously monitors server health in the background, removing dead nodes.
-*   **Site-Specific Validation:** Verifies if servers can access specific targets (e.g., Google, YouTube).
-*   **Distribution:** Exposes results via a REST API (JSON, Base64, Raw) and supports automated pushing to GitHub/GitLab.
-*   **Containerized:** Built for easy deployment with Docker.
+---
 
-### Technical Architecture
-*   **Language:** Python 3.11+
-*   **Framework:** FastAPI (ASGI)
-*   **Core Engine:** Project Xray (Golang binary)
-*   **Concurrency:** `asyncio`, `aiohttp` for efficient batch processing.
-*   **Validation:** Pydantic for data validation and settings management.
+## 🚀 Workflows
 
-## Building and Running
+### 1. Idea Generation Workflow
+Use this when exploring new features or improvements.
+1.  **Request:** User asks for an idea or a search for an idea.
+2.  **Research:** Search the codebase and documents (especially `PRD.md` and `ideas/`) to understand the context.
+3.  **Refinement:** Propose a plan, apply critical thinking, and ask for user feedback.
+4.  **Documentation:** Create a detailed plan in `ideas/todo/XXX-ideaname.md`.
+5.  **Log:** Update `devlog.md`.
 
-### Using Docker (Recommended)
+### 2. Implementation Workflow
+Use this for executing changes or fixing issues.
 
-The project is optimized for Docker Compose.
+#### Case A: Implementing an Idea
+1.  **Review:** Read the idea file from `ideas/todo/` carefully.
+2.  **Clarify:** Think through the logic and ask for any missing details.
+3.  **Execute:** Implement the code, ensuring async-first I/O and strict type hinting.
+4.  **Finalize:** Move the idea file from `ideas/todo/` to `ideas/done/`.
+5.  **Document & Log:** Update `PRD.md` if necessary and update `devlog.md`.
 
-1.  **Configure Environment:**
-    Copy the sample environment file and configure your settings (especially `SUB_URLS`).
-    ```bash
-    cp .env.sample .env
-    ```
+#### Case B: Simple Task / Bug Fix
+1.  **Analyze:** Read relevant code and `PRD.md` carefully.
+2.  **Execute:** Implement the requested fix or change.
+3.  **Document & Log:** Update `devlog.md`.
 
-2.  **Start the Service:**
-    ```bash
-    docker compose up -d
-    ```
+---
 
-The API will be accessible at `http://localhost:8084`.
-
-### Manual Local Setup (Development)
-
-1.  **Prerequisites:**
-    *   Python 3.11+
-    *   [Xray Core](https://github.com/XTLS/Xray-core) installed and available in your system PATH (or specified in `XRAY_PATH`).
-
-2.  **Install Dependencies:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    ```
-
-3.  **Run Application:**
-    ```bash
-    # Ensure XRAY_PATH is set correctly in .env or environment
-    uvicorn src.main:app --host 0.0.0.0 --port 8084 --reload
-    ```
-
-## Configuration
-
-Configuration is handled via environment variables, loaded through Pydantic `BaseSettings`. See `.env.sample` and `src/core/config.py` for all options.
-
-**Key Variables:**
-
-*   `SUB_URLS`: Comma-separated list of subscription URLs to scrape.
-*   `CACHE_INTERVAL_SECONDS`: Refresh interval for server lists (default: 900s).
-*   `MAX_DELAY_MS`: Maximum latency to consider a server "working" (default: 8000ms).
-*   `TEST_TIMEOUT`: Timeout for individual connection tests (default: 10s).
-*   `XRAY_PATH`: Path to the Xray binary (default: `/usr/local/bin/xray`).
-*   `GITHUB_PUSH_ENABLED`: Set to `True` to enable Git integration.
-
-## Development Conventions
-
-*   **Code Structure:**
-    *   `src/main.py`: Entry point and API definition.
-    *   `src/core/`: Configuration and core utilities.
-    *   `src/models/`: Pydantic data models (e.g., `Server`, `ServerResponse`).
-    *   `src/service/`: Business logic (`SubscriptionService`, `XrayService`, `GitUploader`).
-*   **Asynchronous Programming:** Heavy use of `asyncio` for non-blocking I/O during scraping and testing. Ensure any new I/O operations are async.
-*   **Type Hinting:** Strictly use Python type hints for better code quality and IDE support.
-*   **Linting/Formatting:** Follow standard Python PEP 8 guidelines.
-
-## Improvement Workflow (Ideas)
-
-The `ideas/` directory is organized into `todo/` (planned) and `done/` (completed).
-
-1.  **Selection:** Pick a file from `ideas/todo/` (e.g., `003-database-persistence.md`).
-2.  **Implementation:** Follow the "Implementation Steps" defined in the markdown file.
-3.  **Completion:** Once the feature is verified:
-    *   Add `(Completed)` to the title.
-    *   Add a `## Status` section at the top with the completion date.
-    *   Move the file to `ideas/done/`.
-
-## API Endpoints
-
-*   `GET /health`: Service health check.
-*   `GET /servers/live`: Trigger immediate test and return top results.
-*   `GET /cache`: Retrieve currently cached top 25 servers.
-*   `GET /cache/base64`: Get cached servers in standard Base64 subscription format.
-*   `GET /subscription/site-specific?url=...`: Get servers that work for a specific URL.
+## Engineering Mandates
+- **Single Source of Truth:** `PRD.md`.
+- **Async First:** Heavy use of `asyncio` for all I/O operations (scraping, testing).
+- **Type Safety:** Strict use of Python type hints and Pydantic models.
+- **Code Style:** Adhere to PEP 8; ensure `xray` subprocesses are properly terminated.
+- **DevLog:** Update `devlog.md` after every major workflow step or implementation.

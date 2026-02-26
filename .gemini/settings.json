@@ -2,5 +2,10 @@
   "experimental": {
     "enableAgents": true,
     "plan": true
+  },
+  "ui": {
+    "footer": {
+      "hideContextPercentage": false
+    }
   }
 }
