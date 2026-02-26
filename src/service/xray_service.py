@@ -7,7 +7,6 @@ import time
 from typing import Any, Dict, List, Tuple, Optional
 
 import aiohttp
-from aiohttp_socks import ProxyConnector
 from loguru import logger
 
 from core.config import Settings
@@ -225,33 +224,39 @@ class XrayService:
 
         return {"log": {"loglevel": "warning"}, "inbounds": inbounds, "outbounds": outbounds, "routing": {"rules": routing_rules}}
 
-    async def test_server_real_delay(self, port: int) -> float:
-        """Tests latency by making a request through the local SOCKS5 proxy."""
-        proxy_url = f"socks5://127.0.0.1:{port}"
+    async def _call_go_tester(self, xray_config: Dict[str, Any], test_url: str, ports: List[int], is_site_check: bool) -> List[Dict[str, Any]]:
+        # Find the path to the Go binary
+        go_binary_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go-tester", "xray-tester")
+        
+        request_payload = {
+            "xray_config": xray_config,
+            "xray_path": self.settings.XRAY_PATH,
+            "xray_assets_path": self.settings.XRAY_ASSETS_PATH,
+            "test_url": test_url,
+            "timeout": self.settings.TEST_TIMEOUT,
+            "ports": ports,
+            "is_site_check": is_site_check
+        }
+
         try:
-            connector = ProxyConnector.from_url(proxy_url)
-            async with aiohttp.ClientSession(connector=connector) as proxy_session:
-                start_time = time.monotonic()
-                async with proxy_session.head(self.settings.LATENCY_TEST_URL, timeout=self.settings.TEST_TIMEOUT) as response:
-                    if 200 <= response.status < 300:
-                        return (time.monotonic() - start_time) * 1000
-                    return float("inf")
-        except Exception:
-            return float("inf")
-
-
-    async def check_url_via_proxy(self, port: int, target_url: str) -> bool:
-        """Checks if a target URL is accessible via a SOCKS5 proxy, returning True on success."""
-        proxy = f"socks5://127.0.0.1:{port}"
-        try:
-            connector = ProxyConnector.from_url(proxy)
-            timeout = aiohttp.ClientTimeout(total=self.settings.TEST_TIMEOUT)
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                async with session.head(target_url, allow_redirects=True, timeout=self.settings.TEST_TIMEOUT) as response:
-                    return response.status < 400
-        except Exception:
-            return False
-
+            # Run the Go binary as a subprocess
+            process = await asyncio.create_subprocess_exec(
+                go_binary_path,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate(input=json.dumps(request_payload).encode('utf-8'))
+            
+            if process.returncode != 0:
+                logger.error(f"Go tester failed with exit code {process.returncode}: {stderr.decode('utf-8')}")
+                return []
+                
+            return json.loads(stdout.decode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to execute Go tester: {e}")
+            return []
 
     async def run_test_batch(self, servers: List[Dict[str, Any]]) -> List[Tuple[Dict, float]]:
         if not servers:
@@ -260,15 +265,19 @@ class XrayService:
         xray_config = self.build_xray_config_for_batch(servers, self.settings.BASE_PORT)
         ports = [self.settings.BASE_PORT + i for i in range(len(servers))]
 
-        try:
-            async with XrayProcessContext(self.settings, xray_config, ports, timeout=12.0) as _: # slightly higher timeout
-                tasks = [self.test_server_real_delay(port) for port in ports]
-                results = await asyncio.gather(*tasks)
-                return list(zip(servers, results))
-        
-        except Exception as e:
-            logger.error(f"Batch test failed: {e}")
+        results = await self._call_go_tester(
+            xray_config, 
+            self.settings.LATENCY_TEST_URL, 
+            ports, 
+            is_site_check=False
+        )
+
+        if not results:
             return [(s, float("inf")) for s in servers]
+
+        # Map results back to servers
+        delay_map = {res["port"]: res["delay"] if not res["failed"] else float("inf") for res in results}
+        return [(s, delay_map.get(port, float("inf"))) for s, port in zip(servers, ports)]
     
     async def evaluate_site_accessibility(self, url: str, servers_to_test: List[Dict]) -> List[Dict]:
         """Helper to test a list of servers against a specific URL."""
@@ -281,17 +290,20 @@ class XrayService:
             xray_config = self.build_xray_config_for_batch(batch, self.settings.BASE_PORT)
             ports = [self.settings.BASE_PORT + j for j in range(len(batch))]
 
-            try:
-                async with XrayProcessContext(self.settings, xray_config, ports, timeout=12.0) as _:
-                    tasks = [self.check_url_via_proxy(port, url) for port in ports]
-                    results = await asyncio.gather(*tasks)
+            results = await self._call_go_tester(
+                xray_config, 
+                url, 
+                ports, 
+                is_site_check=True
+            )
 
-                    for server, was_successful in zip(batch, results):
-                        if was_successful:
-                            successful_servers.append(server)
-            except Exception as e:
-                logger.error(f"Site check batch failed: {e}")
-                continue
+            if results:
+                success_ports = {res["port"] for res in results if not res["failed"]}
+                for server, port in zip(batch, ports):
+                    if port in success_ports:
+                        successful_servers.append(server)
+            else:
+                logger.error("Site check batch failed or returned no results")
         
         return successful_servers
 

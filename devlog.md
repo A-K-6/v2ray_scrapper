@@ -2,6 +2,12 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-02-26] - Idea Implemented: Go-based Xray Tester
+- **Task:** Implemented a Go-based testing utility (`xray-tester`) to orchestrate proxy testing.
+- **Goal:** Replaced Python `aiohttp_socks` concurrent latency testing with efficient Go goroutines using `net/http` to resolve bottlenecking and simplify subprocess management.
+- **Reference:** `ideas/done/010-go-xray-tester.md`.
+- **Status:** Completed.
+
 ## [2026-02-26] - Idea Created: Go-based Xray Tester
 - **Task:** Created a new idea for a Go-based testing utility.
 - **Goal:** Improve performance and scalability of server testing.

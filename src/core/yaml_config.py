@@ -21,8 +21,11 @@ class AppConfig(BaseModel):
     git: GitConfig = Field(default_factory=GitConfig)
     sites: List[SiteConfig] = Field(default_factory=list)
 
-def load_yaml_config(path: str = "config.yaml") -> AppConfig:
+def load_yaml_config(path: str = None) -> AppConfig:
     """Loads and validates the YAML configuration file."""
+    if path is None:
+        path = os.getenv("YAML_CONFIG_PATH", "config.yaml")
+        
     if not os.path.exists(path):
         logger.warning(f"YAML config file not found at {path}. Using default empty config.")
         return AppConfig()

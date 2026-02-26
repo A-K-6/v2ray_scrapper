@@ -1,3 +1,9 @@
+# Build Go binary
+FROM golang:1.21-alpine AS builder
+WORKDIR /build
+COPY ./src/go-tester /build
+RUN go build -o xray-tester main.go
+
 # Start from a Python 3.11 base image
 FROM python:3.11-slim
 
@@ -14,6 +20,9 @@ RUN apt-get update && apt-get install -y wget unzip git \
 # Copy the requirements file and install Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the built Go binary
+COPY --from=builder /build/xray-tester /app/go-tester/xray-tester
 
 # Copy your application source code
 COPY ./src .
