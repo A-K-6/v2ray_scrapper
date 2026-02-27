@@ -2,6 +2,12 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-02-27] - Makefile Creation
+- **Task:** Created a `Makefile` to simplify development, testing, and deployment.
+- **Goal:** Provide easy-to-use commands for environment setup, building Go components, running the FastAPI app, and Docker management.
+- **Targets Added:** `setup`, `build-go`, `run`, `test`, `docker-up`, `lint`, `fmt`, `clean`.
+- **Status:** Completed.
+
 ## [2026-02-27] - Idea Implemented: Comprehensive Codebase Cleanup
 - **Task:** Executed a major architectural refactoring to improve modularity and type safety.
 - **Goal:** Split monolithic `SubscriptionService` into specialized services (`ScraperService`, `TesterService`, `IntegrationService`, `SubscriptionManager`), unified configuration into a Pydantic-based manager, and implemented protocol-specific Pydantic models.
