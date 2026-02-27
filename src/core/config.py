@@ -11,9 +11,17 @@ class SiteConfig(BaseModel):
     filename: str
     enabled: bool = True
 
+class WorkerConfig(BaseModel):
+    id: str = Field(default="worker-01")
+
+class GitConfig(BaseModel):
+    branch: str = Field(default="main")
+    push_interval: int = Field(default=600)
+
 class AppYamlConfig(BaseModel):
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    git: GitConfig = Field(default_factory=GitConfig)
     sites: List[SiteConfig] = Field(default_factory=list)
-    # Add other YAML-specific fields here if needed
 
 class Settings(BaseSettings):
     # Xray Configuration
@@ -104,6 +112,16 @@ class Settings(BaseSettings):
                 data = yaml.safe_load(f) or {}
             
             self.app_config = AppYamlConfig(**data)
+            
+            # Override settings with YAML values if they are explicitly provided
+            if "git" in data and isinstance(data["git"], dict):
+                if "branch" in data["git"]:
+                    self.GITHUB_BRANCH = self.app_config.git.branch
+                    logger.info(f"Overriding GITHUB_BRANCH from YAML: {self.GITHUB_BRANCH}")
+                if "push_interval" in data["git"]:
+                    self.CACHE_INTERVAL_SECONDS = self.app_config.git.push_interval
+                    logger.info(f"Overriding CACHE_INTERVAL_SECONDS from YAML: {self.CACHE_INTERVAL_SECONDS}")
+
             logger.info(f"Loaded YAML config from {path} with {len(self.app_config.sites)} sites.")
         except ValidationError as e:
             logger.error(f"Invalid YAML configuration in {path}: {e}")
