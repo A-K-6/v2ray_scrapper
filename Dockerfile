@@ -4,8 +4,8 @@ WORKDIR /build
 COPY ./src/go-tester /build
 RUN go build -o xray-tester main.go
 
-# Start from a Python 3.11 base image
-FROM python:3.11-slim
+# Start from a Python 3.13 base image
+FROM python:3.13-slim
 
 # Set the working directory inside the container
 WORKDIR /app

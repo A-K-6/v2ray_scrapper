@@ -1,8 +1,19 @@
 import os
 import json
-from typing import List, Union, Any
+import yaml
+from typing import List, Union, Any, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator, AliasChoices
+from pydantic import Field, field_validator, AliasChoices, BaseModel, ValidationError
+from loguru import logger
+
+class SiteConfig(BaseModel):
+    url: str
+    filename: str
+    enabled: bool = True
+
+class AppYamlConfig(BaseModel):
+    sites: List[SiteConfig] = Field(default_factory=list)
+    # Add other YAML-specific fields here if needed
 
 class Settings(BaseSettings):
     # Xray Configuration
@@ -10,9 +21,6 @@ class Settings(BaseSettings):
     XRAY_ASSETS_PATH: str = Field(default="/usr/share/xray/")
 
     # Subscription Configuration
-    # Fallback to SUB_URL if SUB_URLS is not set for backward compatibility
-    _DEFAULT_SUB: str = "https://github.com/Epodonios/v2ray-configs/raw/main/Splitted-By-Protocol/vless.txt"
-    
     SUB_URLS: Union[List[str], str] = Field(
         default=["https://github.com/Epodonios/v2ray-configs/raw/main/Splitted-By-Protocol/vless.txt"],
         validation_alias=AliasChoices("SUB_URLS", "SUB_URL")
@@ -29,15 +37,11 @@ class Settings(BaseSettings):
     def parse_comma_separated_list(cls, v: Any) -> List[str]:
         if isinstance(v, str):
             v = v.strip()
-            # Try to parse as JSON first (in case user provided ["url1", "url2"])
             if v.startswith("[") and v.endswith("]"):
                 try:
                     return json.loads(v)
                 except json.JSONDecodeError:
-                    # If JSON fails (e.g. malformed), fall back to splitting by comma
                     pass
-            
-            # Split by comma
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
 
@@ -49,8 +53,8 @@ class Settings(BaseSettings):
     MAX_DELAY_MS: int = Field(default=8000)
     
     # Caching
-    CACHE_INTERVAL_SECONDS: int = Field(default=900) # 15 minutes
-    SITE_CACHE_TTL_SECONDS: int = Field(default=3600) # 1 hour
+    CACHE_INTERVAL_SECONDS: int = Field(default=900)
+    SITE_CACHE_TTL_SECONDS: int = Field(default=3600)
     MAX_FAIL_COUNT: int = Field(default=3)
     
     # Redis
@@ -76,12 +80,37 @@ class Settings(BaseSettings):
     GITHUB_FILENAME: str = Field(default="subscription.txt")
     GITHUB_REPO_DIR: str = Field(default="/app/subscription_repo")
 
-    # Git Proxy Settings (Optional)
+    # Git Proxy Settings
     GIT_HTTP_PROXY: str = Field(default="")
     GIT_HTTPS_PROXY: str = Field(default="")
     GIT_SSL_NO_VERIFY: bool = Field(default=False)
     GIT_SELF_PROXY_ENABLED: bool = Field(default=True)
 
+    # YAML Config Path
+    YAML_CONFIG_PATH: str = Field(default="config.yaml")
+
+    # Nested App Config (from YAML)
+    app_config: AppYamlConfig = Field(default_factory=AppYamlConfig)
+
+    def load_app_config(self):
+        """Loads and validates the YAML configuration file."""
+        path = self.YAML_CONFIG_PATH
+        if not os.path.exists(path):
+            logger.warning(f"YAML config file not found at {path}. Using default empty config.")
+            return
+
+        try:
+            with open(path, "r") as f:
+                data = yaml.safe_load(f) or {}
+            
+            self.app_config = AppYamlConfig(**data)
+            logger.info(f"Loaded YAML config from {path} with {len(self.app_config.sites)} sites.")
+        except ValidationError as e:
+            logger.error(f"Invalid YAML configuration in {path}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to load YAML config {path}: {e}")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
+settings.load_app_config()

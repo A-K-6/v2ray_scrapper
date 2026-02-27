@@ -7,7 +7,7 @@
 
 ## Problem Statement
 The current codebase has several architectural bottlenecks:
-0.  **Outdated Runtime**: Currently running on Python 3.11, missing out on significant performance improvements and modern `asyncio` features available in Python 3.14 (the current 2026 stable release).
+0.  **Outdated Runtime**: Currently running on Python 3.11, missing out on significant performance improvements and modern `asyncio` features available in Python 3.13 (the current 2026 stable release).
 1.  **Monolithic Service**: `SubscriptionService` acts as a "God Class," handling everything from scraping to GitHub pushes.
 2.  **Scattered Protocol Logic**: Logic for URI parsing, URI generation, and Xray configuration is distributed across multiple services and static classes, often using primitive dictionaries.
 3.  **Configuration Inconsistency**: Settings are split between `.env` (Pydantic) and `config.yaml` (custom loader), leading to overlap and confusion.
@@ -52,7 +52,7 @@ Split `SubscriptionService` into focused components:
 - **Performance**: Reduced locking overhead and better state management.
 
 ## Implementation Plan
-0.  **Runtime Upgrade**: Update `Dockerfile` and CI/CD to Python 3.14. Verify compatibility of core dependencies (`aiohttp`, `pydantic`, `fastapi`).
+0.  **Runtime Upgrade**: Update `Dockerfile` and CI/CD to Python 3.13. Verify compatibility of core dependencies (`aiohttp`, `pydantic`, `fastapi`).
 1.  **Refactor Models**: Create `src/models/protocol.py` (or expand `server.py`).
 2.  **Update Services**: Progressively migrate logic from `SubscriptionService` to new services.
 3.  **Unify Config**: Create a new unified config loader.

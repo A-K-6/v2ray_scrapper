@@ -10,6 +10,7 @@ import aiohttp
 from loguru import logger
 
 from core.config import Settings
+from models.server import ProxyServer
 
 class XrayProcessContext:
     def __init__(self, settings: Settings, config: Dict[str, Any], ports: List[int], timeout: float = 10.0):
@@ -109,7 +110,7 @@ class XrayService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def build_xray_config_for_batch(self, servers: List[Dict[str, Any]], base_port: int) -> Dict[str, Any]:
+    def build_xray_config_for_batch(self, servers: List[ProxyServer], base_port: int) -> Dict[str, Any]:
         inbounds, outbounds, routing_rules = [], [], []
         for i, server in enumerate(servers):
             inbound_port = base_port + i
@@ -119,104 +120,7 @@ class XrayService:
                 "settings": {"auth": "noauth", "udp": True, "ip": "127.0.0.1"},
             })
 
-            protocol = server.get("protocol")
-            outbound_config = None
-
-            if protocol == "vless":
-                vnext = [{"address": server["address"], "port": server["port"], "users": [{
-                    "id": server["vless_id"], "encryption": "none", "flow": server.get("flow", "")
-                }]}]
-                stream_settings = {"network": server.get("type", "tcp"), "security": server.get("security", "none")}
-                # Sanitize security field
-                if stream_settings["security"] == "auto":
-                    stream_settings["security"] = "none"
-
-                if stream_settings["network"] == "ws":
-                    stream_settings["wsSettings"] = {"path": server.get("path", "/")}
-                    ws_host = server.get("host", server["address"])
-                    if ws_host:
-                        stream_settings["wsSettings"]["host"] = ws_host
-                
-                if stream_settings["security"] in ("tls", "reality"):
-                    security_settings = {"serverName": server.get("sni", server.get("host", server["address"])), "fingerprint": server.get("fp", "chrome")}
-                    if stream_settings["security"] == "reality":
-                        security_settings.update({"publicKey": server.get("pbk"), "shortId": server.get("sid")})
-                    setting_key = f"{stream_settings['security']}Settings"
-                    stream_settings[setting_key] = security_settings
-                outbound_config = {"protocol": "vless", "settings": {"vnext": vnext}, "streamSettings": stream_settings}
-            elif protocol == "vmess":
-                vnext = [{"address": server["address"], "port": server["port"], "users": [{
-                    "id": server["vmess_id"], "alterId": server.get("aid", 0), "security": server.get("security", "auto")
-                }]}]
-                stream_settings = {"network": server.get("type", "tcp"), "security": server.get("tls", "none")}
-                # Sanitize security field
-                if stream_settings["security"] == "auto":
-                    stream_settings["security"] = "none"
-
-                if stream_settings["network"] == "ws":
-                    stream_settings["wsSettings"] = {"path": server.get("path", "/")}
-                    ws_host = server.get("host", server["address"])
-                    if ws_host:
-                        stream_settings["wsSettings"]["host"] = ws_host
-                
-                if stream_settings["security"] == "tls":
-                        stream_settings["tlsSettings"] = {"serverName": server.get("sni", server.get("host", server["address"]))}
-                outbound_config = {"protocol": "vmess", "settings": {"vnext": vnext}, "streamSettings": stream_settings}
-            elif protocol == "trojan":
-                server_config = [{"address": server["address"], "port": server["port"], "password": server["password"]}]
-                stream_settings = {"network": server.get("type", "tcp"), "security": "tls"}
-                stream_settings["tlsSettings"] = {"serverName": server.get("sni", server.get("host", server["address"]))}
-                if server.get("type") == "ws":
-                    stream_settings["wsSettings"] = {"path": server.get("path", "/")}
-                    ws_host = server.get("host", server["address"])
-                    if ws_host:
-                        stream_settings["wsSettings"]["host"] = ws_host
-                outbound_config = {"protocol": "trojan", "settings": {"servers": server_config}, "streamSettings": stream_settings}
-            elif protocol == "shadowsocks":
-                # List of supported AEAD ciphers in modern Xray
-                supported_methods = [
-                    "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", 
-                    "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm"
-                ]
-                
-                method = server.get("method", "")
-                if method not in supported_methods:
-                    # logger.warning(f"Skipping unsupported SS method: {method}")
-                    continue # Skip this server so it doesn't break the config
-
-                server_config = [{
-                    "address": server["address"], 
-                    "port": server["port"], 
-                    "method": method, 
-                    "password": server["password"]
-                }]
-                outbound_config = {"protocol": "shadowsocks", "settings": {"servers": server_config}}
-
-            elif protocol == "hysteria2":
-                server_info = {
-                    "address": server["address"],
-                    "port": server["port"],
-                    "password": server["password"]
-                }
-                if server.get("obfs") and server["obfs"] != "none":
-                     server_info["obfs"] = {
-                        "type": server["obfs"],
-                        "password": server.get("obfs_password", "")
-                    }
-                
-                stream_settings = {
-                    "security": "tls",
-                    "tlsSettings": {
-                        "serverName": server.get("sni", server.get("host", server["address"])),
-                        "allowInsecure": server.get("insecure", False)
-                    }
-                }
-                outbound_config = {
-                    "protocol": "hysteria2",
-                    "settings": {"servers": [server_info]},
-                    "streamSettings": stream_settings
-                }
-
+            outbound_config = server.to_xray_outbound()
             if outbound_config:
                 outbound_config["tag"] = outbound_tag
                 outbounds.append(outbound_config)
@@ -258,7 +162,7 @@ class XrayService:
             logger.error(f"Failed to execute Go tester: {e}")
             return []
 
-    async def run_test_batch(self, servers: List[Dict[str, Any]]) -> List[Tuple[Dict, float]]:
+    async def run_test_batch(self, servers: List[ProxyServer]) -> List[Tuple[ProxyServer, float]]:
         if not servers:
             return []
 
@@ -279,7 +183,7 @@ class XrayService:
         delay_map = {res["port"]: res["delay"] if not res["failed"] else float("inf") for res in results}
         return [(s, delay_map.get(port, float("inf"))) for s, port in zip(servers, ports)]
     
-    async def evaluate_site_accessibility(self, url: str, servers_to_test: List[Dict]) -> List[Dict]:
+    async def evaluate_site_accessibility(self, url: str, servers_to_test: List[ProxyServer]) -> List[ProxyServer]:
         """Helper to test a list of servers against a specific URL."""
         successful_servers = []
         
@@ -307,7 +211,7 @@ class XrayService:
         
         return successful_servers
 
-    def run_single_proxy(self, server: Dict[str, Any], port: int):
+    def run_single_proxy(self, server: ProxyServer, port: int):
         """Returns a context manager that runs a single server as a proxy on the given port."""
         config = self.build_xray_config_for_batch([server], port)
         return XrayProcessContext(self.settings, config, [port], timeout=10.0)

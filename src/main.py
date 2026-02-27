@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import asyncio
 import base64
-import sys
-from typing import List, Dict, Optional
+from contextlib import asynccontextmanager
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,19 +10,28 @@ import uvicorn
 
 from core.config import settings
 from core.logger import logger
-from models.server import ServerResponse
+from models.server import ServerResponse, ProxyServer
 from service.xray_service import XrayService
-from service.subscription_service import SubscriptionService
+from service.subscription_manager import SubscriptionManager
 
 # --- Service Initialization ---
 xray_service = XrayService(settings)
-subscription_service = SubscriptionService(settings, xray_service)
+manager = SubscriptionManager(settings, xray_service)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    asyncio.create_task(manager.start_periodic_update())
+    yield
+    # Shutdown logic (optional)
+    await manager.storage_service.close()
 
 # --- FastAPI App Setup ---
 app = FastAPI(
     title="High-Speed V2Ray Server Tester",
-    description="Fetches V2Ray servers, performs real-delay tests, and exposes the fastest servers via an API.",
-    version="3.2",
+    description="Aggregates, validates, and distributes high-performance V2Ray server configurations.",
+    version="4.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -32,61 +41,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(subscription_service.start_periodic_update())
-
 @app.get("/health", summary="Check if the service is running")
 def health_check():
     return {"status": "ok"}
 
-async def get_top_servers_dep() -> List[Dict]:
-    servers = await subscription_service.get_top_25()
-    if servers is None:
+async def get_top_servers_dep() -> List[ProxyServer]:
+    servers = await manager.get_top_25()
+    if not servers:
         raise HTTPException(
             status_code=503,
-            detail="Cache not initialized. Please wait or try the /servers/live endpoint.",
+            detail="Cache not initialized. Please wait for the first update cycle.",
         )
     return servers
 
-@app.get("/servers/live", summary="Get top 25 servers (live test)", response_model=ServerResponse)
+@app.get("/servers/live", summary="Trigger a live test and get top 25", response_model=ServerResponse)
 async def get_servers_live():
-    if subscription_service.is_processing():
+    if manager.is_processing():
         raise HTTPException(status_code=429, detail="A test is already in progress.")
     
-    # Trigger an update manually? Or just return current?
-    # The original code called compute_top_servers() directly which updates nothing but returns result.
-    # To keep behavior:
-    async with subscription_service._processing_lock:
-        top_servers = await subscription_service.compute_top_servers()
-        
-    if not top_servers:
+    # Run a quick update cycle
+    await manager.update_cycle()
+    top_25 = await manager.get_top_25()
+    
+    if not top_25:
         raise HTTPException(status_code=503, detail="No servers available or all tests failed.")
-    top_25 = top_servers[:25]
     return {"count": len(top_25), "servers": top_25}
 
 @app.get("/cache", summary="Get cached top 25 servers", response_model=ServerResponse)
-async def get_cached_servers(cached_servers: List[Dict] = Depends(get_top_servers_dep)):
+async def get_cached_servers(cached_servers: List[ProxyServer] = Depends(get_top_servers_dep)):
     return {"count": len(cached_servers), "servers": cached_servers}
 
 @app.get("/cache/raw", summary="Get cached top 25 servers as raw subscription links")
-async def get_cached_raw(cached_servers: List[Dict] = Depends(get_top_servers_dep)):
-    raw_links = [s["raw_uri"] for s in cached_servers]
+async def get_cached_raw(cached_servers: List[ProxyServer] = Depends(get_top_servers_dep)):
+    raw_links = [s.raw_uri for s in cached_servers]
     return Response("\n".join(raw_links), media_type="text/plain")
 
-def filter_servers(servers: List[Dict], countries: Optional[str] = None) -> List[Dict]:
+def filter_servers(servers: List[ProxyServer], countries: Optional[str] = None) -> List[ProxyServer]:
     if not countries:
         return servers
     target_countries = {c.strip().upper() for c in countries.split(",") if c.strip()}
-    return [s for s in servers if s.get("country_code", "UN").upper() in target_countries]
+    return [s for s in servers if s.country_code.upper() in target_countries]
 
 @app.get("/cache/base64", summary="Get cached top 25 as a Base64 encoded subscription")
 async def get_cached_base64(
     country: Optional[str] = Query(None, description="Filter by country codes (e.g., US,DE)"),
-    cached_servers: List[Dict] = Depends(get_top_servers_dep)
+    cached_servers: List[ProxyServer] = Depends(get_top_servers_dep)
 ):
     filtered = filter_servers(cached_servers, country)
-    raw_links = [s["raw_uri"] for s in filtered]
+    raw_links = [s.raw_uri for s in filtered]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
@@ -95,12 +97,12 @@ async def get_cached_base64(
 async def get_cached_all_base64(
     country: Optional[str] = Query(None, description="Filter by country codes (e.g., US,DE)")
 ):
-    cached_all = await subscription_service.get_all_cached()
-    if cached_all is None:
+    cached_all = await manager.get_all_cached()
+    if not cached_all:
         raise HTTPException(status_code=503, detail="Cache not initialized.")
     
     filtered = filter_servers(cached_all, country)
-    raw_links = [s["raw_uri"] for s in filtered]
+    raw_links = [s.raw_uri for s in filtered]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
@@ -108,33 +110,26 @@ async def get_cached_all_base64(
 @app.get(
     "/subscription/site-specific",
     summary="Get a subscription for a specific site",
-    description="Tests all cached servers against a target URL and returns a Base64 subscription of the servers that can access it.",
+    description="Tests all cached servers against a target URL and returns a Base64 subscription.",
 )
 async def get_site_specific_subscription(
     url: str = Query(..., description="The target URL to test against (e.g., https://www.google.com)")
 ):
-    successful_servers = await subscription_service.get_site_specific_servers(url)
+    successful_servers = await manager.get_site_specific_servers(url)
 
     if successful_servers is None:
-         # This means either cache empty or processing locked
-         if subscription_service.is_processing():
-             raise HTTPException(status_code=429, detail="A test is already in progress. Please wait.")
+         if manager.is_processing():
+             raise HTTPException(status_code=429, detail="A test is already in progress.")
          else:
-             raise HTTPException(status_code=503, detail="Cache is empty. Please wait for it to populate.")
+             raise HTTPException(status_code=503, detail="Cache is empty.")
     
     if not successful_servers:
-        raise HTTPException(status_code=404, detail=f"No servers could successfully access {url}.")
+        raise HTTPException(status_code=404, detail=f"No servers could access {url}.")
 
-    logger.info(f"Found {len(successful_servers)} servers that can access {url}.")
-    raw_links = [s["raw_uri"] for s in successful_servers]
+    raw_links = [s.raw_uri for s in successful_servers]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
 
 if __name__ == "__main__":
-    # Basic check
-    import os
-    if not os.path.exists(settings.XRAY_PATH):
-        logger.warning(f"Xray executable not found at '{settings.XRAY_PATH}'. App may not function correctly.")
-    
     uvicorn.run(app, host=settings.UVICORN_HOST, port=settings.UVICORN_PORT)
