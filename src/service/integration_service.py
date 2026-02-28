@@ -51,19 +51,32 @@ class IntegrationService:
 
     async def handle_site_checks(self, top_servers: List[ProxyServer]):
         """Handles site-specific tests and pushes to GitHub."""
-        sites_to_check = self.settings.app_config.sites
+        sites_to_check = [s for s in self.settings.app_config.sites if s.enabled]
         if not sites_to_check or not top_servers:
             return
 
-        logger.info(f"Checking {len(sites_to_check)} sites...")
-        for site in sites_to_check:
-            if not site.enabled: continue
-            
-            logger.info(f"  Testing {site.url}...")
+        logger.info(f"Checking {len(sites_to_check)} sites in parallel...")
+        
+        # 1. Parallel Testing
+        async def test_site(site, idx):
+            # Use ports far away from candidates test
+            # Let's use BASE_PORT + 10000 + idx * 1000 for sites
+            site_base_port = self.settings.BASE_PORT + 10000 + (idx * 1000)
             try:
-                valid_servers = await self.xray_service.evaluate_site_accessibility(site.url, top_servers)
-                if valid_servers:
-                    logger.info(f"  {len(valid_servers)} servers can access {site.url}")
-                    await self.push_to_github(valid_servers, site.filename)
+                valid_servers = await self.xray_service.evaluate_site_accessibility(site.url, top_servers, base_port=site_base_port)
+                return site, valid_servers
             except Exception as e:
                 logger.error(f"  Failed to check {site.url}: {e}")
+                return site, []
+
+        tasks = [test_site(site, i) for i, site in enumerate(sites_to_check)]
+        results = await asyncio.gather(*tasks)
+
+        # 2. Sequential Pushing (to avoid Git lock issues)
+        for site, valid_servers in results:
+            if valid_servers:
+                logger.info(f"  {len(valid_servers)} servers can access {site.url}. Pushing...")
+                try:
+                    await self.push_to_github(valid_servers, site.filename)
+                except Exception as e:
+                    logger.error(f"  Failed to push {site.filename}: {e}")

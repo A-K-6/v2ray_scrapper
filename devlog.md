@@ -2,6 +2,26 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-02-28] - Bug Fix: Xray Port Binding Stability & Diagnostics
+- **Task:** Addressed "failed to bind port" errors during parallel testing.
+- **Changes:**
+  - Reduced `BATCH_SIZE` from 500 to 100 for better stability.
+  - Increased `TesterService` concurrency to 10 (1,000 parallel tests total).
+  - Enhanced `go-tester` to capture and report Xray `stderr` on failure.
+  - Increased Xray startup timeout in `go-tester` from 10s to 30s.
+- **Goal:** Resolve resource contention issues and improve error visibility.
+- **Status:** Completed.
+
+## [2026-02-28] - Bug Fix: arq Timeout & Performance Optimization
+- **Task:** Fixed `TimeoutError` in `run_update_cycle_task` and optimized testing performance.
+- **Changes:**
+  - Increased `arq` `job_timeout` from 300s to 1200s in `WorkerSettings`.
+  - Parallelized batch testing in `TesterService` using `asyncio.Semaphore` and unique port ranges.
+  - Parallelized site-specific accessibility checks in `IntegrationService`.
+  - Modified `XrayService` to support configurable `base_port` for parallel execution.
+- **Goal:** Prevent task cancellation during long-running update cycles and reduce overall processing time.
+- **Status:** Completed.
+
 ## [2026-02-28] - Idea Implemented: Distributed Task Architecture & Resilient Scraping
 - **Task:** Successfully transitioned to a distributed, task-based architecture using `arq`.
 - **Goal:** Decoupled the update cycle, implemented resilient scraping with exponential backoff (tenacity), and introduced a standalone task worker to scale testing.

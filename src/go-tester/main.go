@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -68,6 +69,10 @@ func main() {
 	
 	cmd := exec.Command(xrayPath, "-c", tmpFile.Name())
 	
+	// Capture stderr for debugging
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	// Set environment variables for Xray
 	if req.XrayAssetsPath != "" {
 		env := os.Environ()
@@ -89,8 +94,8 @@ func main() {
 
 	// 4. Wait for the first port to be ready
 	firstPort := req.Ports[0]
-	if !waitForPort(firstPort, 10*time.Second) {
-		log.Fatalf("xray failed to bind port %d in time", firstPort)
+	if !waitForPort(firstPort, 30*time.Second) {
+		log.Fatalf("xray failed to bind port %d in time. Stderr: %s", firstPort, stderrBuf.String())
 	}
 
 	// 5. Test all ports concurrently

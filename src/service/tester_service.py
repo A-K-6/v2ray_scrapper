@@ -40,13 +40,26 @@ class TesterService:
 
         logger.info(f"Testing {len(candidates)} candidates...")
 
-        # 1. Batch Test
+        # 1. Batch Test (Parallelized with Semaphore)
         all_results = []
+        semaphore = asyncio.Semaphore(10) # Limit to 10 concurrent batches of 100
+        
+        async def test_batch(batch, batch_idx):
+            async with semaphore:
+                # Use a larger offset to avoid any overlapping
+                batch_base_port = self.settings.BASE_PORT + (batch_idx * 200)
+                logger.info(f"Starting batch {batch_idx + 1} (port range: {batch_base_port}-...)")
+                return await self.xray_service.run_test_batch(batch, base_port=batch_base_port)
+
+        tasks = []
         for i in range(0, len(candidates), self.settings.BATCH_SIZE):
             batch = candidates[i : i + self.settings.BATCH_SIZE]
-            logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1}...")
-            batch_results = await self.xray_service.run_test_batch(batch)
-            all_results.extend(batch_results)
+            batch_idx = i // self.settings.BATCH_SIZE
+            tasks.append(test_batch(batch, batch_idx))
+
+        batches_results = await asyncio.gather(*tasks)
+        for res in batches_results:
+            all_results.extend(res)
 
         # 2. Process Results
         currently_working = []

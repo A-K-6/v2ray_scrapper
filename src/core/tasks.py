@@ -38,6 +38,7 @@ async def run_site_check_task(ctx, url: str):
 class WorkerSettings:
     """arq worker configuration."""
     functions = [run_update_cycle_task, run_site_check_task]
+    job_timeout = 1200 # 20 minutes
     cron_jobs = [
         cron(run_update_cycle_task, second=0, minute=list(range(0, 60, max(1, app_settings.CACHE_INTERVAL_SECONDS // 60))))
     ]

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # Testing Configuration
     LATENCY_TEST_URL: str = Field(default="http://www.google.com/generate_204")
-    BATCH_SIZE: int = Field(default=500)
+    BATCH_SIZE: int = Field(default=100)
     BASE_PORT: int = Field(default=20000)
     TEST_TIMEOUT: int = Field(default=10)
     MAX_DELAY_MS: int = Field(default=8000)

@@ -162,12 +162,13 @@ class XrayService:
             logger.error(f"Failed to execute Go tester: {e}")
             return []
 
-    async def run_test_batch(self, servers: List[ProxyServer]) -> List[Tuple[ProxyServer, float]]:
+    async def run_test_batch(self, servers: List[ProxyServer], base_port: Optional[int] = None) -> List[Tuple[ProxyServer, float]]:
         if not servers:
             return []
 
-        xray_config = self.build_xray_config_for_batch(servers, self.settings.BASE_PORT)
-        ports = [self.settings.BASE_PORT + i for i in range(len(servers))]
+        base_port = base_port or self.settings.BASE_PORT
+        xray_config = self.build_xray_config_for_batch(servers, base_port)
+        ports = [base_port + i for i in range(len(servers))]
 
         results = await self._call_go_tester(
             xray_config, 
@@ -183,16 +184,17 @@ class XrayService:
         delay_map = {res["port"]: res["delay"] if not res["failed"] else float("inf") for res in results}
         return [(s, delay_map.get(port, float("inf"))) for s, port in zip(servers, ports)]
     
-    async def evaluate_site_accessibility(self, url: str, servers_to_test: List[ProxyServer]) -> List[ProxyServer]:
+    async def evaluate_site_accessibility(self, url: str, servers_to_test: List[ProxyServer], base_port: Optional[int] = None) -> List[ProxyServer]:
         """Helper to test a list of servers against a specific URL."""
         successful_servers = []
+        base_port = base_port or self.settings.BASE_PORT
         
         for i in range(0, len(servers_to_test), self.settings.BATCH_SIZE):
             batch = servers_to_test[i : i + self.settings.BATCH_SIZE]
             logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1} for site: {url}")
 
-            xray_config = self.build_xray_config_for_batch(batch, self.settings.BASE_PORT)
-            ports = [self.settings.BASE_PORT + j for j in range(len(batch))]
+            xray_config = self.build_xray_config_for_batch(batch, base_port)
+            ports = [base_port + j for j in range(len(batch))]
 
             results = await self._call_go_tester(
                 xray_config, 
