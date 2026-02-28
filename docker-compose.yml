@@ -27,6 +27,24 @@ services:
 
     restart: unless-stopped
 
+  arq-worker:
+    build: .
+    volumes:
+      - ./src:/app
+      - ./config.yaml:/app_config.yaml
+    working_dir: /app
+    command: arq core.tasks.WorkerSettings
+    env_file:
+      - .env
+    environment:
+      - YAML_CONFIG_PATH=/app_config.yaml
+      - XRAY_PATH=/usr/local/bin/xray
+      - XRAY_ASSETS_PATH=/usr/local/bin
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    restart: unless-stopped
+
   redis:
     image: redis:alpine
     restart: always

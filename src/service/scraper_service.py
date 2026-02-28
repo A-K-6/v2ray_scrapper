@@ -3,6 +3,7 @@ import base64
 import aiohttp
 from typing import List, Optional
 from loguru import logger
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from core.config import Settings
 from service.parse_uri import ProxyParser
@@ -13,6 +14,13 @@ class ScraperService:
         self.settings = settings
         self.parser = ProxyParser()
 
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+        before_sleep=lambda retry_state: logger.warning(f"Retrying fetch ({retry_state.attempt_number}/5) after error: {retry_state.outcome.exception()}"),
+        reraise=True
+    )
     async def _fetch_single_url(self, session: aiohttp.ClientSession, url: str) -> List[ProxyServer]:
         url = url.strip()
         if not url: return []
@@ -34,6 +42,9 @@ class ScraperService:
                 parsed_batch = [p for p in (self.parser.parse(line) for line in lines) if p]
                 logger.info(f"  Found {len(parsed_batch)} servers from {url}.")
                 return parsed_batch
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            # Re-raise for tenacity to handle retries
+            raise
         except Exception as e:
             logger.error(f"Failed to fetch {url}: {e}")
             return []

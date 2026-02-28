@@ -62,6 +62,9 @@ run: ## Run the application locally with hot reload
 	@echo -e "$(GREEN)Starting FastAPI application...$(RESET)"
 	export PYTHONPATH=$$(pwd)/src && $(BIN)/uvicorn main:app --app-dir src --host 0.0.0.0 --port 8084 --reload
 
+worker: ## Run the task worker locally
+	@echo -e "$(GREEN)Starting ARQ task worker...$(RESET)"
+	cd src && export PYTHONPATH=$$(pwd) && ../$(BIN)/arq core.tasks.WorkerSettings
 test: ## Run unit tests
 	@echo -e "$(YELLOW)Running tests...$(RESET)"
 	export PYTHONPATH=$$(pwd)/src && $(BIN)/python -m unittest discover tests

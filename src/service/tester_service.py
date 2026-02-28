@@ -65,7 +65,8 @@ class TesterService:
                 if server.fail_count < self.settings.MAX_FAIL_COUNT:
                     updated_candidates.append(server)
                 else:
-                    logger.debug(f"Server {server.address} reached max fail count and was removed.")
+                    # logger.debug(f"Server {server.address} reached max fail count and was removed.")
+                    pass
 
         # Sort working servers by delay
         currently_working.sort(key=lambda s: s.delay)

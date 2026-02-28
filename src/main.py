@@ -56,15 +56,15 @@ async def get_top_servers_dep() -> List[ProxyServer]:
 
 @app.get("/servers/live", summary="Trigger a live test and get top 25", response_model=ServerResponse)
 async def get_servers_live():
-    if manager.is_processing():
-        raise HTTPException(status_code=429, detail="A test is already in progress.")
+    # Enqueue a new update cycle task
+    await manager.enqueue_update()
     
-    # Run a quick update cycle
-    await manager.update_cycle()
+    # Return what we currently have in cache, or a message that update is in progress
     top_25 = await manager.get_top_25()
     
     if not top_25:
-        raise HTTPException(status_code=503, detail="No servers available or all tests failed.")
+        return {"count": 0, "servers": [], "message": "Update task enqueued. Please wait for the first cycle to complete."}
+    
     return {"count": len(top_25), "servers": top_25}
 
 @app.get("/cache", summary="Get cached top 25 servers", response_model=ServerResponse)

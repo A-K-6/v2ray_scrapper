@@ -62,7 +62,7 @@ class ProxyParser:
                 raw_uri=uri,
             )
         except Exception as e:
-            logger.debug(f"Error parsing VLESS URI: {e}")
+            # logger.debug(f"Error parsing VLESS URI: {e}")
             return None
 
     @staticmethod
@@ -102,7 +102,7 @@ class ProxyParser:
                 raw_uri=uri,
             )
         except Exception as e:
-            logger.debug(f"Error parsing VMess URI: {e}")
+            # logger.debug(f"Error parsing VMess URI: {e}")
             return None
 
     @staticmethod
@@ -128,7 +128,7 @@ class ProxyParser:
                 raw_uri=uri,
             )
         except Exception as e:
-            logger.debug(f"Error parsing Trojan URI: {e}")
+            # logger.debug(f"Error parsing Trojan URI: {e}")
             return None
 
     @staticmethod
@@ -171,7 +171,7 @@ class ProxyParser:
                 raw_uri=uri,
             )
         except Exception as e:
-            logger.debug(f"Error parsing Shadowsocks URI: {e}")
+            # logger.debug(f"Error parsing Shadowsocks URI: {e}")
             return None
 
     @staticmethod
@@ -201,5 +201,5 @@ class ProxyParser:
                 raw_uri=uri,
             )
         except Exception as e:
-            logger.debug(f"Error parsing Hysteria 2 URI: {e}")
+            # logger.debug(f"Error parsing Hysteria 2 URI: {e}")
             return None
