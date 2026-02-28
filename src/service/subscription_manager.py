@@ -127,13 +127,23 @@ class SubscriptionManager:
                 await self.storage_service.save_servers("working_servers", [s.model_dump() for s in working])
                 await self.storage_service.save_servers("candidate_servers", [s.model_dump() for s in updated_candidates_list])
                 
-                # 6. Integrations
-                await self.integrator.push_to_github(working)
-                await self.integrator.handle_site_checks(working)
+                logger.info("Update cycle testing phase completed and persisted.")
+                
+                # 6. Integrations (Run in background to release processing lock)
+                # We create a task so the lock is released immediately, but we keep a reference
+                asyncio.create_task(self._run_integrations_background(working))
 
-                logger.info("Update cycle completed and persisted.")
             except Exception as e:
                 logger.exception(f"Critical error in update cycle: {e}")
+
+    async def _run_integrations_background(self, working: List[ProxyServer]):
+        """Helper to run integrations without holding the main processing lock."""
+        try:
+            await self.integrator.push_to_github(working)
+            await self.integrator.handle_site_checks(working)
+            logger.info("Background integrations completed.")
+        except Exception as e:
+            logger.error(f"Error in background integrations: {e}")
 
     async def start_periodic_update(self):
         """API Process: Periodically refreshes cache and enqueues updates."""

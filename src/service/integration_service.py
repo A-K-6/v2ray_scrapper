@@ -11,14 +11,16 @@ class IntegrationService:
     def __init__(self, settings: Settings, xray_service: XrayService):
         self.settings = settings
         self.xray_service = xray_service
+        self._git_lock = asyncio.Lock()
 
     async def push_to_github(self, servers: List[ProxyServer], filename: Optional[str] = None):
         """Pushes the provided servers to GitHub."""
         if not self.settings.GITHUB_PUSH_ENABLED or not self.settings.GITHUB_TOKEN or not servers:
             return
 
-        filename = filename or self.settings.GITHUB_FILENAME
-        logger.info(f"Starting GitHub push for {filename}...")
+        async with self._git_lock:
+            filename = filename or self.settings.GITHUB_FILENAME
+            logger.info(f"Starting GitHub push for {filename}...")
         
         raw_links = [s.raw_uri for s in servers]
         content = "\n".join(raw_links)

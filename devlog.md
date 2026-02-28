@@ -2,6 +2,15 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-02-28] - Optimization: Decoupled Integrations & Task Concurrency
+- **Task:** Prevented slow GitHub pushes and site checks from blocking the next update cycle.
+- **Changes:**
+  - Modified `SubscriptionManager.update_cycle` to release the `_processing_lock` immediately after the testing phase.
+  - Moved GitHub pushes and site accessibility checks into background tasks (`asyncio.create_task`).
+  - Added an `asyncio.Lock` to `IntegrationService` to prevent concurrent Git operations from conflicting on the same repository directory.
+- **Goal:** Improve worker throughput and ensure the scheduled cron jobs are never skipped due to slow network operations.
+- **Status:** Completed.
+
 ## [2026-02-28] - Bug Fix: Xray Port Binding Stability & Diagnostics
 - **Task:** Addressed "failed to bind port" errors during parallel testing.
 - **Changes:**
