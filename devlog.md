@@ -2,6 +2,12 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-02-28] - Idea Created: Distributed Task Architecture & Resilient Scraping
+- **Task:** Created a new idea for transitioning to a distributed, task-based architecture.
+- **Goal:** Decouple the update cycle, implement resilient scraping with exponential backoff, and allow standalone Go-based tester workers for high-scale testing.
+- **Reference:** `ideas/todo/012-distributed-task-architecture.md`.
+- **Status:** Planning.
+
 ## [2026-02-27] - Makefile Creation
 - **Task:** Created a `Makefile` to simplify development, testing, and deployment.
 - **Goal:** Provide easy-to-use commands for environment setup, building Go components, running the FastAPI app, and Docker management.
