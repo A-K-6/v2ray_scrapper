@@ -4,7 +4,7 @@ import base64
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response, Depends
+from fastapi import FastAPI, HTTPException, Query, Response, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -130,6 +130,23 @@ async def get_site_specific_subscription(
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
+
+@app.post(
+    "/subscription/test",
+    summary="Test submitted subscription content",
+    response_model=ServerResponse,
+    description="Accepts raw or Base64-encoded V2Ray subscription text and returns the working servers.",
+)
+async def test_subscription_content(content: str = Body(..., media_type="text/plain")):
+    working_servers = await manager.test_subscription_content(content)
+
+    if working_servers is None:
+        raise HTTPException(status_code=429, detail="A test is already in progress.")
+
+    if not working_servers:
+        return {"count": 0, "servers": []}
+
+    return {"count": len(working_servers), "servers": working_servers}
 
 if __name__ == "__main__":
     uvicorn.run(app, host=settings.UVICORN_HOST, port=settings.UVICORN_PORT)

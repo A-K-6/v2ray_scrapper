@@ -13,9 +13,36 @@ class IntegrationService:
         self.xray_service = xray_service
         self._git_lock = asyncio.Lock()
 
+    def is_main_push_enabled(self) -> bool:
+        return (
+            self.settings.GITHUB_PUSH_ENABLED
+            and self.settings.GITHUB_MAIN_PUSH_ENABLED
+            and bool(self.settings.GITHUB_TOKEN)
+            and bool(self.settings.GITHUB_REPO_URL)
+        )
+
+    def is_site_push_enabled(self) -> bool:
+        return (
+            self.settings.GITHUB_PUSH_ENABLED
+            and self.settings.GITHUB_SITE_PUSH_ENABLED
+            and bool(self.settings.GITHUB_TOKEN)
+            and bool(self.settings.GITHUB_REPO_URL)
+        )
+
+    def has_enabled_integrations(self) -> bool:
+        return self.is_main_push_enabled() or self.is_site_push_enabled()
+
     async def push_to_github(self, servers: List[ProxyServer], filename: Optional[str] = None):
         """Pushes the provided servers to GitHub."""
-        if not self.settings.GITHUB_PUSH_ENABLED or not self.settings.GITHUB_TOKEN or not servers:
+        if not servers:
+            return
+
+        is_main_file = not filename or filename == self.settings.GITHUB_FILENAME
+        if is_main_file and not self.is_main_push_enabled():
+            logger.info("Main GitHub push is disabled. Skipping publish.")
+            return
+        if not is_main_file and not self.is_site_push_enabled():
+            logger.info(f"Site-specific GitHub push is disabled for {filename}. Skipping publish.")
             return
 
         async with self._git_lock:
@@ -53,6 +80,10 @@ class IntegrationService:
 
     async def handle_site_checks(self, top_servers: List[ProxyServer]):
         """Handles site-specific tests and pushes to GitHub."""
+        if not self.is_site_push_enabled():
+            logger.info("Site-specific checks are disabled because site publishing is off.")
+            return
+
         sites_to_check = [s for s in self.settings.app_config.sites if s.enabled]
         if not sites_to_check or not top_servers:
             return

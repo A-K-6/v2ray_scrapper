@@ -56,12 +56,17 @@ class ScraperService:
             for url in self.settings.SUB_URLS:
                 tasks.append(self._fetch_single_url(session, url))
             
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Flatten and Deduplicate
         seen_fingerprints = {}
         total_found = 0
-        for batch in results:
+        failed_sources = 0
+        for url, batch in zip(self.settings.SUB_URLS, results):
+            if isinstance(batch, Exception):
+                failed_sources += 1
+                logger.error(f"Skipping failed subscription source {url}: {batch}")
+                continue
             total_found += len(batch)
             for server in batch:
                 fp = server.fingerprint
@@ -69,7 +74,10 @@ class ScraperService:
                     seen_fingerprints[fp] = server
         
         final_list = list(seen_fingerprints.values())
-        logger.info(f"Total servers found: {total_found}. Unique servers: {len(final_list)}")
+        logger.info(
+            f"Total servers found: {total_found}. Unique servers: {len(final_list)}. "
+            f"Failed sources: {failed_sources}/{len(self.settings.SUB_URLS)}"
+        )
 
         if self.settings.LOW_INTERNET_CONS:
             logger.info(f"Low Internet Consumption Mode ON: Limiting to top {self.settings.LOW_INTERNET_LIMIT} servers.")

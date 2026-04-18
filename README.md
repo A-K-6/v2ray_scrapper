@@ -64,6 +64,8 @@ Configuration is managed via environment variables (or the `.env` file).
 | `TEST_TIMEOUT` | Timeout for each connection test (seconds). | `10` |
 | `LOW_INTERNET_CONS` | Limit number of servers tested to save bandwidth. | `False` |
 | `GITHUB_PUSH_ENABLED` | Enable pushing results to a Git repo. | `False` |
+| `GITHUB_MAIN_PUSH_ENABLED` | Enable pushing the main `subscription.txt` export. | `True` |
+| `GITHUB_SITE_PUSH_ENABLED` | Enable site-specific checks and pushes like `google_tci.txt`. | `True` |
 | `GITHUB_TOKEN` | GitHub Personal Access Token (if enabled). | - |
 | `GITHUB_REPO_URL` | Target Git repository URL. | - |
 
@@ -101,11 +103,17 @@ Once running, you can access the following endpoints:
 | `/cache/base64` | `GET` | Get cached servers as Base64 subscription string. |
 | `/cache/all/base64` | `GET` | Get **ALL** working servers as Base64. |
 | `/subscription/site-specific` | `GET` | Get servers that work for a specific URL (param: `url`). |
+| `/subscription/test` | `POST` | Test raw or Base64 subscription text and return working servers. |
 
 **Example Usage:**
 ```bash
 # Get a working subscription link
 curl http://localhost:8084/cache/base64
+
+# Test a local subscription file without changing the main cache
+curl -X POST http://localhost:8084/subscription/test \
+  -H "Content-Type: text/plain" \
+  --data-binary @subscription.txt
 ```
 
 ---

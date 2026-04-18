@@ -1,4 +1,6 @@
+import base64
 import asyncio
+import binascii
 import time
 from typing import List, Dict, Optional, Tuple
 from loguru import logger
@@ -106,13 +108,21 @@ class SubscriptionManager:
                 await self.refresh_cache_from_storage()
 
                 # 1. Scrape
-                new_servers = await self.scraper.fetch_all()
+                try:
+                    new_servers = await self.scraper.fetch_all()
+                except Exception as e:
+                    logger.exception(f"Scraping failed, continuing with cached candidates only: {e}")
+                    new_servers = []
                 
                 # 2. Merge with candidates
                 for s in new_servers:
                     fp = s.fingerprint
                     if fp not in self._candidate_servers:
                         self._candidate_servers[fp] = s
+
+                if not self._candidate_servers:
+                    logger.warning("No candidate servers available after scraping; skipping test cycle.")
+                    return
                 
                 # 3. Test
                 working, updated_candidates_list = await self.tester.run_cycle(list(self._candidate_servers.values()))
@@ -129,9 +139,11 @@ class SubscriptionManager:
                 
                 logger.info("Update cycle testing phase completed and persisted.")
                 
-                # 6. Integrations (Run in background to release processing lock)
-                # We create a task so the lock is released immediately, but we keep a reference
-                asyncio.create_task(self._run_integrations_background(working))
+                # 6. Integrations (optional, and kept out of the core cycle)
+                if self.integrator.has_enabled_integrations():
+                    asyncio.create_task(self._run_integrations_background(working))
+                else:
+                    logger.info("All publishing integrations are disabled. Skipping background integrations.")
 
             except Exception as e:
                 logger.exception(f"Critical error in update cycle: {e}")
@@ -139,8 +151,16 @@ class SubscriptionManager:
     async def _run_integrations_background(self, working: List[ProxyServer]):
         """Helper to run integrations without holding the main processing lock."""
         try:
-            await self.integrator.push_to_github(working)
-            await self.integrator.handle_site_checks(working)
+            if self.integrator.is_main_push_enabled():
+                await self.integrator.push_to_github(working)
+            else:
+                logger.info("Main subscription publishing is disabled. Skipping publish.")
+
+            if self.integrator.is_site_push_enabled():
+                await self.integrator.handle_site_checks(working)
+            else:
+                logger.info("Site-specific publishing is disabled. Skipping site checks.")
+
             logger.info("Background integrations completed.")
         except Exception as e:
             logger.error(f"Error in background integrations: {e}")
@@ -158,13 +178,14 @@ class SubscriptionManager:
             await asyncio.sleep(self.settings.CACHE_INTERVAL_SECONDS)
 
     async def get_top_25(self) -> List[ProxyServer]:
-        # Always refresh before serving if possible, or trust the periodic refresh
+        await self.refresh_cache_from_storage()
         async with self._cache_lock:
-            return self._cached_top25
+            return list(self._cached_top25)
 
     async def get_all_cached(self) -> List[ProxyServer]:
+        await self.refresh_cache_from_storage()
         async with self._cache_lock:
-            return self._cached_all
+            return list(self._cached_all)
 
     async def get_site_specific_servers(self, url: str) -> Optional[List[ProxyServer]]:
         # This one is tricky because it's a live check. 
@@ -193,16 +214,55 @@ class SubscriptionManager:
                 self._site_cache[url] = (time.time(), valid)
             return valid
 
+    def parse_subscription_content(self, content: str) -> List[ProxyServer]:
+        raw_content = content.strip()
+        if not raw_content:
+            return []
+
+        parsed_servers = self._parse_lines(raw_content)
+        if parsed_servers:
+            return parsed_servers
+
+        try:
+            decoded = base64.b64decode(raw_content).decode("utf-8", errors="ignore")
+        except (binascii.Error, ValueError):
+            return []
+
+        return self._parse_lines(decoded)
+
+    def _parse_lines(self, content: str) -> List[ProxyServer]:
+        seen_fingerprints: Dict[str, ProxyServer] = {}
+        for line in content.splitlines():
+            parsed = self.scraper.parser.parse(line)
+            if not parsed:
+                continue
+            seen_fingerprints[parsed.fingerprint] = parsed
+        return list(seen_fingerprints.values())
+
+    async def test_subscription_content(self, content: str) -> Optional[List[ProxyServer]]:
+        candidates = self.parse_subscription_content(content)
+        if not candidates:
+            return []
+
+        if self._processing_lock.locked():
+            return None
+
+        async with self._processing_lock:
+            working, _ = await self.tester.run_cycle(candidates)
+            return working
+
     def is_processing(self) -> bool:
         return self._processing_lock.locked()
 
     async def get_top_25(self) -> List[ProxyServer]:
+        await self.refresh_cache_from_storage()
         async with self._cache_lock:
-            return self._cached_top25
+            return list(self._cached_top25)
 
     async def get_all_cached(self) -> List[ProxyServer]:
+        await self.refresh_cache_from_storage()
         async with self._cache_lock:
-            return self._cached_all
+            return list(self._cached_all)
 
     async def get_site_specific_servers(self, url: str) -> Optional[List[ProxyServer]]:
         async with self._site_cache_lock:

@@ -80,6 +80,8 @@ class Settings(BaseSettings):
 
     # GitHub Integration
     GITHUB_PUSH_ENABLED: bool = Field(default=False)
+    GITHUB_MAIN_PUSH_ENABLED: bool = Field(default=True)
+    GITHUB_SITE_PUSH_ENABLED: bool = Field(default=True)
     GITHUB_TOKEN: str = Field(default="")
     GITHUB_REPO_URL: str = Field(default="")
     GITHUB_USER: str = Field(default="V2Ray Updater")
