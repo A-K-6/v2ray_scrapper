@@ -104,46 +104,56 @@ class SubscriptionManager:
 
         async with self._processing_lock:
             try:
-                # 0. Reload current state from storage to ensure we have latest candidates
-                await self.refresh_cache_from_storage()
-
-                # 1. Scrape
-                try:
-                    new_servers = await self.scraper.fetch_all()
-                except Exception as e:
-                    logger.exception(f"Scraping failed, continuing with cached candidates only: {e}")
-                    new_servers = []
+                # 1. Scrape and Test in Go
+                logger.info("Starting unified Go scrape-and-test cycle...")
+                results = await self.xray_service.scrape_and_test(self.settings.SUB_URLS)
                 
-                # 2. Merge with candidates
-                for s in new_servers:
-                    fp = s.fingerprint
-                    if fp not in self._candidate_servers:
-                        self._candidate_servers[fp] = s
+                if not results:
+                    logger.warning("No results from Go tester.")
+                    return
 
-                if not self._candidate_servers:
-                    logger.warning("No candidate servers available after scraping; skipping test cycle.")
+                # 2. Process results back into models
+                working_servers = []
+                all_candidates = []
+                
+                for res in results:
+                    uri = res.get("uri")
+                    if not uri: continue
+                    
+                    # Parse URI in Python just to get the model (already validated by Go)
+                    server = self.scraper.parser.parse(uri)
+                    if not server: continue
+                    
+                    server.delay = res.get("delay", -1)
+                    all_candidates.append(server)
+                    
+                    if not res.get("failed") and server.delay > 0:
+                        # Enrich with GeoIP, Remark, etc.
+                        self.tester.enrich_server(server, server.delay)
+                        working_servers.append(server)
+
+                if not all_candidates:
+                    logger.warning("No valid candidate servers found after Go cycle.")
                     return
                 
-                # 3. Test
-                working, updated_candidates_list = await self.tester.run_cycle(list(self._candidate_servers.values()))
+                # Sort by delay
+                working_servers.sort(key=lambda s: s.delay if s.delay > 0 else float("inf"))
                 
-                # 4. Update local state (for worker context, though storage is primary)
+                # 3. Update local state
                 async with self._cache_lock:
-                    self._cached_all = working
-                    self._cached_top25 = working[:25]
-                    self._candidate_servers = {s.fingerprint: s for s in updated_candidates_list}
+                    self._cached_all = working_servers
+                    self._cached_top25 = working_servers[:25]
+                    self._candidate_servers = {s.fingerprint: s for s in all_candidates}
                 
-                # 5. Persist to Storage (Primary Source for API)
-                await self.storage_service.save_servers("working_servers", [s.model_dump() for s in working])
-                await self.storage_service.save_servers("candidate_servers", [s.model_dump() for s in updated_candidates_list])
+                # 4. Persist to Storage (for API)
+                await self.storage_service.save_servers("working_servers", [s.model_dump() for s in working_servers])
+                await self.storage_service.save_servers("candidate_servers", [s.model_dump() for s in all_candidates])
                 
-                logger.info("Update cycle testing phase completed and persisted.")
+                logger.info(f"Update cycle complete. Working: {len(working_servers)}, Total Candidates: {len(all_candidates)}")
                 
-                # 6. Integrations (optional, and kept out of the core cycle)
+                # 5. Integrations
                 if self.integrator.has_enabled_integrations():
-                    asyncio.create_task(self._run_integrations_background(working))
-                else:
-                    logger.info("All publishing integrations are disabled. Skipping background integrations.")
+                    asyncio.create_task(self._run_integrations_background(working_servers))
 
             except Exception as e:
                 logger.exception(f"Critical error in update cycle: {e}")
@@ -168,6 +178,10 @@ class SubscriptionManager:
     async def start_periodic_update(self):
         """API Process: Periodically refreshes cache and enqueues updates."""
         await self.initialize()
+        
+        # Incremental Sync Task: Keep Redis in sync with Go's state.json
+        asyncio.create_task(self._incremental_sync_loop())
+        
         while True:
             # Refresh local cache from storage (in case worker updated it)
             await self.refresh_cache_from_storage()
@@ -176,6 +190,50 @@ class SubscriptionManager:
             await self.enqueue_update()
             
             await asyncio.sleep(self.settings.CACHE_INTERVAL_SECONDS)
+
+    async def _incremental_sync_loop(self):
+        """Syncs state.json to Redis frequently to expose Go's partial progress to the API."""
+        while True:
+            try:
+                import os
+                import json
+                if os.path.exists(self.settings.STATE_FILE_PATH):
+                    with open(self.settings.STATE_FILE_PATH, "r") as f:
+                        state_data = json.load(f)
+                    
+                    servers_data = state_data.get("servers", {})
+                    if servers_data:
+                        # Extract all URIs that are working
+                        working_servers = []
+                        all_candidates = []
+                        
+                        for fp, s in servers_data.items():
+                            uri = s.get("uri")
+                            if not uri: continue
+                            
+                            # Parse URI to model
+                            server = self.scraper.parser.parse(uri)
+                            if not server: continue
+                            
+                            server.delay = s.get("last_delay", -1)
+                            server.fail_count = s.get("fail_count", 0)
+                            all_candidates.append(server.model_dump())
+                            
+                            if server.delay > 0 and server.fail_count == 0:
+                                self.tester.enrich_server(server, server.delay)
+                                working_servers.append(server.model_dump())
+                        
+                        # Sort working by delay
+                        working_servers.sort(key=lambda s: s.get("delay", 99999))
+                        
+                        # Sync to Redis
+                        await self.storage_service.save_servers("working_servers", working_servers)
+                        await self.storage_service.save_servers("candidate_servers", all_candidates)
+                        # logger.debug(f"Incrementally synced {len(working_servers)} servers to Redis.")
+            except Exception as e:
+                logger.error(f"Incremental sync error: {e}")
+            
+            await asyncio.sleep(10) # Sync every 10 seconds
 
     async def get_top_25(self) -> List[ProxyServer]:
         await self.refresh_cache_from_storage()
@@ -188,11 +246,9 @@ class SubscriptionManager:
             return list(self._cached_all)
 
     async def get_site_specific_servers(self, url: str) -> Optional[List[ProxyServer]]:
-        # This one is tricky because it's a live check. 
-        # We can either enqueue it or run it locally if we want immediate results.
-        # Given the "site-specific" requirement, it might be better to enqueue and let the user wait/retry.
-        # But for now, let's keep it local or redirect to a task if it's too slow.
-        
+        # Refresh from storage first to get any incrementally found servers
+        await self.refresh_cache_from_storage()
+
         async with self._site_cache_lock:
             if url in self._site_cache:
                 cache_time, servers = self._site_cache[url]
@@ -200,19 +256,17 @@ class SubscriptionManager:
                     return servers
 
         async with self._cache_lock:
+            # Use ALL discovered servers (including those found in current background run)
             base_list = self._cached_all
 
         if not base_list: return None
         
-        # Site specific check can still be run locally by the API if we want fast response,
-        # but it uses Xray so it's heavy. Let's keep it local for now but documented as a candidate for worker.
-        if self._processing_lock.locked(): return None
-
-        async with self._processing_lock:
-            valid = await self.xray_service.evaluate_site_accessibility(url, base_list)
-            async with self._site_cache_lock:
-                self._site_cache[url] = (time.time(), valid)
-            return valid
+        # We allow site-specific checks even if a background update is running.
+        # This gives the user immediate results from partially discovered servers.
+        valid = await self.xray_service.evaluate_site_accessibility(url, base_list)
+        async with self._site_cache_lock:
+            self._site_cache[url] = (time.time(), valid)
+        return valid
 
     def parse_subscription_content(self, content: str) -> List[ProxyServer]:
         raw_content = content.strip()

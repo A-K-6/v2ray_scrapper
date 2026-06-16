@@ -2,6 +2,45 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-06-16] - Performance Overhaul: High-Parallelism Go Tester
+- **Task:** Optimized the Go tester to handle large volumes of servers (12k+) with "Go speed".
+- **Changes:**
+  - **Dynamic Concurrency:** Removed hardcoded limits in Go core. Now accepts `BatchSize` and `MaxParallelBatches` from Python.
+  - **Parallelism Boost:** Increased default concurrency from 2 to 20 parallel batches (2,000 concurrent tests).
+  - **Enhanced Diagnostics:** Implemented Xray `stderr` capture during port binding failures to identify root causes (e.g., port collisions or resource limits).
+  - **Robust Port Waiting:** Reduced port binding timeout to 20s with more aggressive polling for faster recovery.
+  - **Build System Fix:** Updated `Makefile` to correctly build the entire Go package.
+- **Goal:** Reduce testing time for 12k servers from >15 minutes to ~2 minutes.
+- **Status:** Completed.
+
+## [2026-06-16] - Architectural Overhaul: Unified Go Core
+- **Task:** Successfully implemented the three core roadmap items to improve performance, reliability, and stability.
+- **Changes:**
+  - **Go Scraping:** Moved subscription fetching to Go, implementing parallel goroutines for ultra-fast processing of multiple sources.
+  - **Go Database Persistence:** Implemented a state management system in Go (`state.json`) that tracks server fail counts and history across restarts.
+  - **Go-Git Integration:** Migrated all Git operations (clone, pull, rebase, push) to a robust Go-managed system, eliminating "resource busy" errors on Docker mount points.
+  - **Unified Command Interface:** The Go tester now supports complex commands like `scrape-and-test` and `git-push`, reducing Python's role to orchestration and API serving.
+- **Goal:** Create a high-performance, stable, and production-ready tool with minimal external dependencies.
+- **Status:** Completed.
+
+## [2026-06-16] - Optimization: Native Go Parsing for Xray Tester
+- **Task:** Migrated URI parsing and Xray configuration generation from Python to the Go-based `xray-tester`.
+- **Changes:**
+  - Implemented `parseRawURI` in Go, supporting VMess, VLESS, Trojan, Shadowsocks, and Hysteria2.
+  - Refactored `xray_service.py` to pass raw URIs to the Go subprocess instead of dynamically building large JSON payloads in Python.
+  - The Go tester now internally generates the unified Xray `inbounds`, `outbounds`, and `routing` configuration for batch testing.
+- **Goal:** Significantly improve testing performance and reduce Python memory overhead by leveraging Go's speed for parsing and structure generation.
+- **Status:** Completed.
+
+## [2026-06-16] - Bug Fix: Git Uploader Mount Point & Corruption Resilience
+- **Task:** Resolved critical failures in `GitUploader` where corrupted repositories on Docker mount points caused "Device or resource busy" errors.
+- **Changes:**
+  - Implemented `_clear_repo_dir` to delete directory contents instead of the directory itself, respecting Docker mount points.
+  - Enhanced repository validation using `git rev-parse --is-inside-work-tree` to reliably detect corrupted `.git` states.
+  - Replaced all instances of `shutil.rmtree(self.repo_dir)` with the safe `_clear_repo_dir` method.
+- **Goal:** Ensure the automated push cycle can recover from any git state without manual intervention or worker crashes.
+- **Status:** Completed.
+
 ## [2026-02-28] - Optimization: Decoupled Integrations & Task Concurrency
 - **Task:** Prevented slow GitHub pushes and site checks from blocking the next update cycle.
 - **Changes:**

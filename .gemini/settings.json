@@ -1,11 +1,18 @@
 {
   "experimental": {
-    "enableAgents": true,
-    "plan": true
+    "enableAgents": true
   },
   "ui": {
     "footer": {
       "hideContextPercentage": false
     }
+  },
+  "general": {
+    "plan": {
+      "enabled": true
+    }
+  },
+  "agents": {
+    "overrides": {}
   }
 }

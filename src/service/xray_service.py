@@ -126,54 +126,102 @@ class XrayService:
                 outbounds.append(outbound_config)
                 routing_rules.append({"type": "field", "inboundTag": [inbound_tag], "outboundTag": outbound_tag})
 
-        return {"log": {"loglevel": "warning"}, "inbounds": inbounds, "outbounds": outbounds, "routing": {"rules": routing_rules}}
+        return {"log": {"loglevel": "info"}, "inbounds": inbounds, "outbounds": outbounds, "routing": {"rules": routing_rules}}
 
-    async def _call_go_tester(self, xray_config: Dict[str, Any], test_url: str, ports: List[int], is_site_check: bool) -> List[Dict[str, Any]]:
+    async def _call_go_tester(self, raw_uris: List[str] = None, sub_urls: List[str] = None, command: str = "test", test_url: str = None, base_port: int = None, is_site_check: bool = False) -> List[Dict[str, Any]]:
         # Find the path to the Go binary
         go_binary_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "go-tester", "xray-tester")
         
         request_payload = {
-            "xray_config": xray_config,
+            "command": command,
+            "sub_urls": sub_urls or [],
+            "raw_uris": raw_uris or [],
             "xray_path": self.settings.XRAY_PATH,
             "xray_assets_path": self.settings.XRAY_ASSETS_PATH,
-            "test_url": test_url,
+            "test_url": test_url or self.settings.LATENCY_TEST_URL,
             "timeout": self.settings.TEST_TIMEOUT,
-            "ports": ports,
-            "is_site_check": is_site_check
+            "base_port": base_port or self.settings.BASE_PORT,
+            "batch_size": self.settings.BATCH_SIZE,
+            "max_parallel_batches": self.settings.MAX_CONCURRENT_BATCHES,
+            "is_site_check": is_site_check,
+            "state_path": self.settings.STATE_FILE_PATH
         }
 
         try:
-            # Run the Go binary as a subprocess
+            # Run the Go binary as a subprocess with a large buffer for massive JSON results
             process = await asyncio.create_subprocess_exec(
                 go_binary_path,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                limit=10 * 1024 * 1024 # 10MB buffer
             )
             
-            stdout, stderr = await process.communicate(input=json.dumps(request_payload).encode('utf-8'))
+            # Send payload and close stdin immediately
+            payload_bytes = json.dumps(request_payload).encode('utf-8')
+            process.stdin.write(payload_bytes)
+            await process.stdin.drain()
+            process.stdin.close()
+            await process.stdin.wait_closed()
+
+            # Create tasks to read stdout and stderr concurrently
+            stdout_data = []
+
+            async def stream_stderr():
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        break
+                    logger.info(f"[Go Tester] {line.decode('utf-8').strip()}")
+
+            async def read_stdout():
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    stdout_data.append(line.decode('utf-8'))
+
+            # Run both streaming and waiting
+            await asyncio.gather(stream_stderr(), read_stdout(), process.wait())
             
+            full_stdout = "".join(stdout_data).strip()
+
             if process.returncode != 0:
-                logger.error(f"Go tester failed with exit code {process.returncode}: {stderr.decode('utf-8')}")
+                logger.error(f"Go tester failed with exit code {process.returncode}")
                 return []
                 
-            return json.loads(stdout.decode('utf-8'))
+            if not full_stdout:
+                return []
+                
+            try:
+                return json.loads(full_stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Go tester output as JSON: {e}. Raw: {full_stdout[:100]}...")
+                return []
+                
         except Exception as e:
             logger.error(f"Failed to execute Go tester: {e}")
             return []
+
+    async def scrape_and_test(self, sub_urls: List[str], base_port: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Scrapes and tests servers entirely in Go."""
+        return await self._call_go_tester(
+            command="scrape-and-test",
+            sub_urls=sub_urls,
+            base_port=base_port
+        )
 
     async def run_test_batch(self, servers: List[ProxyServer], base_port: Optional[int] = None) -> List[Tuple[ProxyServer, float]]:
         if not servers:
             return []
 
         base_port = base_port or self.settings.BASE_PORT
-        xray_config = self.build_xray_config_for_batch(servers, base_port)
-        ports = [base_port + i for i in range(len(servers))]
+        raw_uris = [s.raw_uri for s in servers]
 
         results = await self._call_go_tester(
-            xray_config, 
-            self.settings.LATENCY_TEST_URL, 
-            ports, 
+            raw_uris=raw_uris, 
+            test_url=self.settings.LATENCY_TEST_URL, 
+            base_port=base_port, 
             is_site_check=False
         )
 
@@ -181,8 +229,9 @@ class XrayService:
             return [(s, float("inf")) for s in servers]
 
         # Map results back to servers
+        # results are returned in order of ports/uris
         delay_map = {res["port"]: res["delay"] if not res["failed"] else float("inf") for res in results}
-        return [(s, delay_map.get(port, float("inf"))) for s, port in zip(servers, ports)]
+        return [(s, delay_map.get(base_port + i, float("inf"))) for i, s in enumerate(servers)]
     
     async def evaluate_site_accessibility(self, url: str, servers_to_test: List[ProxyServer], base_port: Optional[int] = None) -> List[ProxyServer]:
         """Helper to test a list of servers against a specific URL."""
@@ -193,20 +242,19 @@ class XrayService:
             batch = servers_to_test[i : i + self.settings.BATCH_SIZE]
             logger.info(f"Testing batch {i // self.settings.BATCH_SIZE + 1} for site: {url}")
 
-            xray_config = self.build_xray_config_for_batch(batch, base_port)
-            ports = [base_port + j for j in range(len(batch))]
+            raw_uris = [s.raw_uri for s in batch]
 
             results = await self._call_go_tester(
-                xray_config, 
-                url, 
-                ports, 
+                raw_uris=raw_uris, 
+                test_url=url, 
+                base_port=base_port, 
                 is_site_check=True
             )
 
             if results:
                 success_ports = {res["port"] for res in results if not res["failed"]}
-                for server, port in zip(batch, ports):
-                    if port in success_ports:
+                for j, server in enumerate(batch):
+                    if (base_port + j) in success_ports:
                         successful_servers.append(server)
             else:
                 logger.error("Site check batch failed or returned no results")

@@ -40,16 +40,34 @@ class TesterService:
 
         logger.info(f"Testing {len(candidates)} candidates...")
 
-        # 1. Batch Test (Parallelized with Semaphore)
+        # 1. Batch Test (Parallelized with Slot-based Port Recycling)
         all_results = []
-        semaphore = asyncio.Semaphore(10) # Limit to 10 concurrent batches of 100
+        max_concurrent = self.settings.MAX_CONCURRENT_BATCHES
         
+        # Use a Queue to manage available port "slots" to prevent port overflow
+        available_slots = asyncio.Queue()
+        for i in range(max_concurrent):
+            available_slots.put_nowait(i)
+        
+        total_batches = (len(candidates) + self.settings.BATCH_SIZE - 1) // self.settings.BATCH_SIZE
+        logger.info(f"Starting test cycle with {total_batches} batches (concurrency: {max_concurrent})")
+
         async def test_batch(batch, batch_idx):
-            async with semaphore:
-                # Use a larger offset to avoid any overlapping
-                batch_base_port = self.settings.BASE_PORT + (batch_idx * 200)
-                logger.info(f"Starting batch {batch_idx + 1} (port range: {batch_base_port}-...)")
+            slot_idx = await available_slots.get()
+            try:
+                # Use a safe offset (200 ports per batch) and recycle ports based on slot
+                batch_base_port = self.settings.BASE_PORT + (slot_idx * 200)
+                
+                # Log progress every 10 batches or every 10%
+                log_interval = max(1, total_batches // 10)
+                if (batch_idx + 1) % log_interval == 0 or (batch_idx + 1) == total_batches:
+                    logger.info(f"Processing batch {batch_idx + 1}/{total_batches}...")
+                
                 return await self.xray_service.run_test_batch(batch, base_port=batch_base_port)
+            finally:
+                # Small cooldown to let OS release ports (avoid TIME_WAIT issues)
+                await asyncio.sleep(2)
+                available_slots.put_nowait(slot_idx)
 
         tasks = []
         for i in range(0, len(candidates), self.settings.BATCH_SIZE):

@@ -83,6 +83,25 @@ class GitUploader:
                 logger.error(f"Git command failed: {' '.join(final_command)}\nError: {e.stderr}")
             raise
 
+    def _clear_repo_dir(self):
+        """Safely deletes all contents of the repo directory without deleting the directory itself.
+        This is necessary because the directory might be a Docker mount point.
+        """
+        import shutil
+        if not os.path.exists(self.repo_dir):
+            return
+            
+        logger.info(f"Clearing contents of {self.repo_dir}...")
+        for filename in os.listdir(self.repo_dir):
+            file_path = os.path.join(self.repo_dir, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                logger.error(f"Failed to delete {file_path}: {e}")
+
     def setup_repo(self):
         """Clones the repo if it doesn't exist, or pulls if it does."""
         if not os.path.exists(self.repo_dir):
@@ -98,14 +117,14 @@ class GitUploader:
             for attempt in range(max_retries):
                 try:
                     logger.info(f"Cloning repository (Attempt {attempt+1}/{max_retries})...")
-                    self._run_command(["git", "clone", "--depth", "1", "-b", self.branch, self.repo_url, self.repo_dir])
+                    # Set a larger buffer for slow proxy connections
+                    self._run_command(["git", "config", "--global", "http.postBuffer", "524288000"])
+                    self._run_command(["git", "clone", "--depth", "1", "--single-branch", "-b", self.branch, self.repo_url, self.repo_dir])
                     break
                 except Exception as e:
                     logger.warning(f"Clone failed (attempt {attempt+1}/{max_retries}): {e}")
                     # Clean up failed clone attempt
-                    if os.path.exists(self.repo_dir):
-                        import shutil
-                        shutil.rmtree(self.repo_dir)
+                    self._clear_repo_dir()
                     
                     if attempt < max_retries - 1:
                         import time
@@ -123,11 +142,18 @@ class GitUploader:
             # FIX: Pull latest changes (e.g., README updates) before doing anything else
             # We use --rebase to apply our local bot commits on top of remote changes
             try:
-                # Ensure it is a git repo
-                if not os.path.exists(os.path.join(self.repo_dir, ".git")):
-                    logger.warning(f"Warning: {self.repo_dir} exists but is not a git repository. Cleaning up...")
-                    import shutil
-                    shutil.rmtree(self.repo_dir)
+                # Ensure it is a valid git repo
+                is_repo = False
+                if os.path.exists(os.path.join(self.repo_dir, ".git")):
+                    try:
+                        self._run_command(["git", "rev-parse", "--is-inside-work-tree"], cwd=self.repo_dir)
+                        is_repo = True
+                    except Exception:
+                        pass
+
+                if not is_repo:
+                    logger.warning(f"Warning: {self.repo_dir} exists but is not a valid git repository. Cleaning up...")
+                    self._clear_repo_dir()
                     self.setup_repo()
                     return
 
@@ -153,10 +179,65 @@ class GitUploader:
                 except Exception as reset_err:
                      logger.critical(f"Critical: Git reset failed too. {reset_err}")
                      logger.critical(f"Deleting corrupted repository at {self.repo_dir} to start fresh.")
-                     import shutil
-                     if os.path.exists(self.repo_dir):
-                         shutil.rmtree(self.repo_dir)
+                     self._clear_repo_dir()
                      self.setup_repo()
+
+    def update_files_and_push(self, file_updates: dict[str, str]):
+        """Updates multiple files and pushes them in a single commit.
+        file_updates: dict of {filename: content}
+        """
+        if not file_updates:
+            return
+
+        self.setup_repo()
+        
+        changed = False
+        for filename, content in file_updates.items():
+            file_path = os.path.join(self.repo_dir, filename)
+            # Write content to file
+            with open(file_path, "w") as f:
+                f.write(content)
+            
+            # Check if this specific file changed
+            status = self._run_command(["git", "status", "--porcelain", filename], cwd=self.repo_dir)
+            if status:
+                self._run_command(["git", "add", filename], cwd=self.repo_dir)
+                changed = True
+
+        if not changed:
+            logger.info("No changes to push in any files.")
+            return
+
+        logger.info(f"Committing changes to {len(file_updates)} files...")
+        try:
+            # Use a combined message
+            msg = "Auto-update: " + ", ".join(file_updates.keys())
+            if len(msg) > 100:
+                msg = f"Auto-update {len(file_updates)} files"
+            self._run_command(["git", "commit", "-m", msg], cwd=self.repo_dir)
+        except Exception as e:
+            if "nothing to commit" in str(e):
+                return
+            raise
+
+        # Retry loop for push
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self._run_command(["git", "push", "origin", self.branch], cwd=self.repo_dir)
+                logger.info(f"Batch push successful!")
+                return
+            except Exception as e:
+                logger.warning(f"Batch push failed (attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info("Retrying fetch and rebase...")
+                    try:
+                        self._run_command(["git", "pull", "--rebase", "origin", self.branch], cwd=self.repo_dir)
+                    except Exception as rebase_err:
+                        logger.error(f"Rebase failed during retry: {rebase_err}")
+                        pass
+        
+        logger.error(f"Failed batch push after {max_retries} attempts.")
 
     def update_file_and_push(self, filename: str, content: str):
         self.setup_repo()

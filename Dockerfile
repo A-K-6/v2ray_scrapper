@@ -2,7 +2,7 @@
 FROM golang:1.21-alpine AS builder
 WORKDIR /build
 COPY ./src/go-tester /build
-RUN go build -o xray-tester main.go
+RUN go build -o xray-tester .
 
 # Start from a Python 3.13 base image
 FROM python:3.13-slim

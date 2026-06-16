@@ -45,7 +45,7 @@ install: ## Install dependencies globally (not recommended)
 
 build-go: ## Build the Go-based Xray tester
 	@echo -e "$(YELLOW)Building Go tester...$(RESET)"
-	cd $(GO_TESTER_DIR) && $(GO) build -o xray-tester main.go
+	cd $(GO_TESTER_DIR) && $(GO) build -o xray-tester .
 	@echo -e "$(GREEN)Go tester built at $(GO_TESTER_BIN)$(RESET)"
 
 download-xray: ## Download and install Xray core (Linux 64-bit)

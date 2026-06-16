@@ -67,6 +67,8 @@ class VlessServer(BaseProxyServer):
         return f"vless://{self.vless_id}@{self.address}:{self.port}?{query}{remark_part}"
 
     def to_xray_outbound(self) -> Dict[str, Any]:
+        if self.type in ("http", "h2"):
+            return None
         vnext = [{"address": self.address, "port": self.port, "users": [{
             "id": self.vless_id, "encryption": "none", "flow": self.flow or ""
         }]}]
@@ -120,6 +122,8 @@ class VmessServer(BaseProxyServer):
         return f"vmess://{b64_encoded}"
 
     def to_xray_outbound(self) -> Dict[str, Any]:
+        if self.type in ("http", "h2"):
+            return None
         vnext = [{"address": self.address, "port": self.port, "users": [{
             "id": self.vmess_id, "alterId": self.aid, "security": self.security
         }]}]
@@ -162,6 +166,8 @@ class TrojanServer(BaseProxyServer):
         return f"trojan://{self.password}@{self.address}:{self.port}?{query}{remark_part}"
 
     def to_xray_outbound(self) -> Dict[str, Any]:
+        if self.type in ("http", "h2"):
+            return None
         server_config = [{"address": self.address, "port": self.port, "password": self.password}]
         stream_settings = {"network": self.type, "security": "tls"}
         stream_settings["tlsSettings"] = {"serverName": self.sni or self.host or self.address}

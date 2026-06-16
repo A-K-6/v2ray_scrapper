@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   v2ray-scrapper:
     build: .
@@ -32,6 +30,7 @@ services:
     volumes:
       - ./src:/app
       - ./config.yaml:/app_config.yaml
+      - subscription_repo:/app/subscription_repo
     working_dir: /app
     command: arq core.tasks.WorkerSettings
     env_file:
@@ -53,6 +52,7 @@ services:
 
 volumes:
   redis_data:
+  subscription_repo:
 
 
     

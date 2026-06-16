@@ -26,7 +26,7 @@ class AppYamlConfig(BaseModel):
 class Settings(BaseSettings):
     # Xray Configuration
     XRAY_PATH: str = Field(default="/usr/local/bin/xray")
-    XRAY_ASSETS_PATH: str = Field(default="/usr/share/xray/")
+    XRAY_ASSETS_PATH: str = Field(default="/usr/local/bin/")
 
     # Subscription Configuration
     SUB_URLS: Union[List[str], str] = Field(
@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     BASE_PORT: int = Field(default=20000)
     TEST_TIMEOUT: int = Field(default=10)
     MAX_DELAY_MS: int = Field(default=8000)
+    MAX_CONCURRENT_BATCHES: int = Field(default=10)
     
     # Caching
     CACHE_INTERVAL_SECONDS: int = Field(default=900)
@@ -73,6 +74,7 @@ class Settings(BaseSettings):
 
     # GeoIP
     GEOIP_DB_PATH: str = Field(default="Country.mmdb")
+    STATE_FILE_PATH: str = Field(default="state.json")
 
     # Server Configuration
     UVICORN_HOST: str = Field(default="0.0.0.0")
