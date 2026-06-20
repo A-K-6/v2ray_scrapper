@@ -2,6 +2,21 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-06-21] - Caching Overhaul & Dynamic Site Caching
+- **Task:** Implement Redis caching for site-specific API responses, track dynamic site requests, and test them during background update cycles to provide fresh subscription configs.
+- **Changes:**
+  - Added `record_site_request` and `get_active_site_requests` to [storage_service.py](file:///home/aeen/Aeen/Code/tools/v2ray_scrapper/src/service/storage_service.py) for Redis-backed tracking of requested URL timestamps.
+  - Updated configuration settings in [config.py](file:///home/aeen/Aeen/Code/tools/v2ray_scrapper/src/core/config.py): increased `SITE_CACHE_TTL_SECONDS` default to 86400 (24 hours) and introduced `SITE_REQUEST_MAX_AGE_DAYS` (default 5).
+  - Updated [.env.sample](file:///home/aeen/Aeen/Code/tools/v2ray_scrapper/.env.sample) with the new configuration properties.
+  - Refactored [subscription_manager.py](file:///home/aeen/Aeen/Code/tools/v2ray_scrapper/src/service/subscription_manager.py):
+    - Cleaned up duplicate method definitions for `get_top_25`, `get_all_cached`, `get_site_specific_servers`, and `is_processing`.
+    - Updated `refresh_cache_from_storage` to clear the local in-memory site cache only when the working server fingerprints change.
+    - Updated `get_site_specific_servers` to query/store from Redis first before executing slow on-demand test runs.
+    - Integrated background dynamic testing in `_run_integrations_background` for site URLs queried via API within the last 5 days.
+  - Created [test_caching.py](file:///home/aeen/Aeen/Code/tools/v2ray_scrapper/tests/test_caching.py) to run unit tests verifying the caching and request tracking logic.
+- **Goal:** Cache site-specific subscriptions for a day, and automatically refresh them in background cycles if queried recently to serve them instantly.
+- **Status:** Completed.
+
 ## [2026-06-16] - Performance Overhaul: High-Parallelism Go Tester
 - **Task:** Optimized the Go tester to handle large volumes of servers (12k+) with "Go speed".
 - **Changes:**

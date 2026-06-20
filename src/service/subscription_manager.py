@@ -69,6 +69,14 @@ class SubscriptionManager:
                     logger.warning(f"Failed to load server from storage: {e}")
             
             async with self._cache_lock:
+                # Invalidate in-memory site cache if working servers changed
+                old_fps = {s.fingerprint for s in self._cached_all}
+                new_fps = {s.fingerprint for s in servers}
+                if old_fps != new_fps:
+                    async with self._site_cache_lock:
+                        self._site_cache.clear()
+                    logger.info("Working servers changed. Invalidated in-memory site cache.")
+
                 self._cached_all = servers
                 self._cached_top25 = servers[:25]
             logger.info(f"Refreshed cache with {len(servers)} working servers from storage.")
@@ -171,6 +179,31 @@ class SubscriptionManager:
             else:
                 logger.info("Site-specific publishing is disabled. Skipping site checks.")
 
+            # Run dynamic site-specific updates requested by API users within the max age limit
+            try:
+                max_age_seconds = self.settings.SITE_REQUEST_MAX_AGE_DAYS * 86400
+                active_sites = await self.storage_service.get_active_site_requests(max_age_seconds)
+                if active_sites:
+                    logger.info(f"Checking {len(active_sites)} recently requested API site subscriptions...")
+                    
+                    async def test_api_site(url, idx):
+                        site_base_port = self.settings.BASE_PORT + 20000 + (idx * 1000)
+                        try:
+                            valid_servers = await self.xray_service.evaluate_site_accessibility(url, working, base_port=site_base_port)
+                            await self.storage_service.save_servers(f"site_servers:{url}", [s.model_dump() for s in valid_servers], ttl=self.settings.SITE_CACHE_TTL_SECONDS)
+                            
+                            async with self._site_cache_lock:
+                                self._site_cache[url] = (time.time(), valid_servers)
+                            
+                            logger.info(f"Updated dynamic site cache for {url} with {len(valid_servers)} working servers")
+                        except Exception as e:
+                            logger.error(f"Failed dynamic site check for {url}: {e}")
+
+                    tasks = [test_api_site(url, i) for i, url in enumerate(active_sites)]
+                    await asyncio.gather(*tasks)
+            except Exception as e:
+                logger.error(f"Error checking active API site subscriptions: {e}")
+
             logger.info("Background integrations completed.")
         except Exception as e:
             logger.error(f"Error in background integrations: {e}")
@@ -246,27 +279,55 @@ class SubscriptionManager:
             return list(self._cached_all)
 
     async def get_site_specific_servers(self, url: str) -> Optional[List[ProxyServer]]:
-        # Refresh from storage first to get any incrementally found servers
+        # Record the request timestamp in Redis
+        await self.storage_service.record_site_request(url)
+
+        # Refresh cache from storage (handles cache invalidation automatically if working servers changed)
         await self.refresh_cache_from_storage()
 
+        # 1. Check in-memory cache
         async with self._site_cache_lock:
             if url in self._site_cache:
                 cache_time, servers = self._site_cache[url]
                 if (time.time() - cache_time) < self.settings.SITE_CACHE_TTL_SECONDS:
                     return servers
 
+        # 2. Check Redis cache
+        cached_data = await self.storage_service.load_servers(f"site_servers:{url}")
+        if cached_data:
+            from pydantic import TypeAdapter
+            adapter = TypeAdapter(ProxyServer)
+            servers = []
+            for d in cached_data:
+                try:
+                    servers.append(adapter.validate_python(d))
+                except Exception as e:
+                    logger.warning(f"Failed to validate cached server from Redis: {e}")
+            
+            if servers:
+                # Update in-memory cache
+                async with self._site_cache_lock:
+                    self._site_cache[url] = (time.time(), servers)
+                return servers
+
+        # 3. Evaluate on-demand
         async with self._cache_lock:
-            # Use ALL discovered servers (including those found in current background run)
             base_list = self._cached_all
 
-        if not base_list: return None
-        
-        # We allow site-specific checks even if a background update is running.
-        # This gives the user immediate results from partially discovered servers.
-        valid = await self.xray_service.evaluate_site_accessibility(url, base_list)
-        async with self._site_cache_lock:
-            self._site_cache[url] = (time.time(), valid)
-        return valid
+        if not base_list:
+            return None
+
+        if self._processing_lock.locked():
+            return None
+
+        async with self._processing_lock:
+            valid = await self.xray_service.evaluate_site_accessibility(url, base_list)
+            # Save to Redis
+            await self.storage_service.save_servers(f"site_servers:{url}", [s.model_dump() for s in valid], ttl=self.settings.SITE_CACHE_TTL_SECONDS)
+            # Update in-memory cache
+            async with self._site_cache_lock:
+                self._site_cache[url] = (time.time(), valid)
+            return valid
 
     def parse_subscription_content(self, content: str) -> List[ProxyServer]:
         raw_content = content.strip()
@@ -304,38 +365,6 @@ class SubscriptionManager:
         async with self._processing_lock:
             working, _ = await self.tester.run_cycle(candidates)
             return working
-
-    def is_processing(self) -> bool:
-        return self._processing_lock.locked()
-
-    async def get_top_25(self) -> List[ProxyServer]:
-        await self.refresh_cache_from_storage()
-        async with self._cache_lock:
-            return list(self._cached_top25)
-
-    async def get_all_cached(self) -> List[ProxyServer]:
-        await self.refresh_cache_from_storage()
-        async with self._cache_lock:
-            return list(self._cached_all)
-
-    async def get_site_specific_servers(self, url: str) -> Optional[List[ProxyServer]]:
-        async with self._site_cache_lock:
-            if url in self._site_cache:
-                cache_time, servers = self._site_cache[url]
-                if (time.time() - cache_time) < self.settings.SITE_CACHE_TTL_SECONDS:
-                    return servers
-
-        async with self._cache_lock:
-            base_list = self._cached_all
-
-        if not base_list: return None
-        if self._processing_lock.locked(): return None
-
-        async with self._processing_lock:
-            valid = await self.xray_service.evaluate_site_accessibility(url, base_list)
-            async with self._site_cache_lock:
-                self._site_cache[url] = (time.time(), valid)
-            return valid
 
     def is_processing(self) -> bool:
         return self._processing_lock.locked()

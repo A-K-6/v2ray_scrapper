@@ -214,3 +214,5 @@ __marimo__/
 
 src/subscription_repo
 config.yaml
+src/state.json
+state.json

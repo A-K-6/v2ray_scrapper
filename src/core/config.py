@@ -63,7 +63,8 @@ class Settings(BaseSettings):
     
     # Caching
     CACHE_INTERVAL_SECONDS: int = Field(default=900)
-    SITE_CACHE_TTL_SECONDS: int = Field(default=3600)
+    SITE_CACHE_TTL_SECONDS: int = Field(default=86400)
+    SITE_REQUEST_MAX_AGE_DAYS: int = Field(default=5)
     MAX_FAIL_COUNT: int = Field(default=3)
     
     # Redis

@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from typing import Dict, List, Optional
 import redis.asyncio as redis
 from loguru import logger
@@ -53,6 +54,35 @@ class StorageService:
         except Exception as e:
             logger.error(f"Error loading from Redis (key={key}): {e}")
         return []
+
+    async def record_site_request(self, url: str):
+        """Records that a site-specific URL was requested, with current timestamp."""
+        if not self.redis:
+            return
+        try:
+            await self.redis.hset("site_requests", url, str(time.time()))
+        except Exception as e:
+            logger.error(f"Error recording site request for {url}: {e}")
+
+    async def get_active_site_requests(self, max_age_seconds: float) -> List[str]:
+        """Gets all site-specific URLs requested within max_age_seconds."""
+        if not self.redis:
+            return []
+        try:
+            all_requests = await self.redis.hgetall("site_requests")
+            now = time.time()
+            active_urls = []
+            for url, ts_str in all_requests.items():
+                try:
+                    ts = float(ts_str)
+                    if now - ts <= max_age_seconds:
+                        active_urls.append(url)
+                except ValueError:
+                    continue
+            return active_urls
+        except Exception as e:
+            logger.error(f"Error getting active site requests: {e}")
+            return []
 
     async def close(self):
         if self.redis:
