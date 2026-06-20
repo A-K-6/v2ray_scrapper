@@ -65,20 +65,32 @@ class StorageService:
             logger.error(f"Error recording site request for {url}: {e}")
 
     async def get_active_site_requests(self, max_age_seconds: float) -> List[str]:
-        """Gets all site-specific URLs requested within max_age_seconds."""
+        """Gets all site-specific URLs requested within max_age_seconds, and cleans up expired ones."""
         if not self.redis:
             return []
         try:
             all_requests = await self.redis.hgetall("site_requests")
             now = time.time()
             active_urls = []
+            expired_urls = []
             for url, ts_str in all_requests.items():
                 try:
                     ts = float(ts_str)
                     if now - ts <= max_age_seconds:
                         active_urls.append(url)
+                    else:
+                        expired_urls.append(url)
                 except ValueError:
-                    continue
+                    expired_urls.append(url)
+            
+            # Clean up expired fields from Redis
+            if expired_urls:
+                try:
+                    await self.redis.hdel("site_requests", *expired_urls)
+                    logger.info(f"Cleaned up {len(expired_urls)} expired site-specific requests from Redis.")
+                except Exception as ex:
+                    logger.error(f"Failed to delete expired site requests from Redis: {ex}")
+                    
             return active_urls
         except Exception as e:
             logger.error(f"Error getting active site requests: {e}")

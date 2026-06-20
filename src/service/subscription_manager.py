@@ -186,18 +186,21 @@ class SubscriptionManager:
                 if active_sites:
                     logger.info(f"Checking {len(active_sites)} recently requested API site subscriptions...")
                     
+                    sem = asyncio.Semaphore(self.settings.MAX_CONCURRENT_SITE_CHECKS)
+                    
                     async def test_api_site(url, idx):
-                        site_base_port = self.settings.BASE_PORT + 20000 + (idx * 1000)
-                        try:
-                            valid_servers = await self.xray_service.evaluate_site_accessibility(url, working, base_port=site_base_port)
-                            await self.storage_service.save_servers(f"site_servers:{url}", [s.model_dump() for s in valid_servers], ttl=self.settings.SITE_CACHE_TTL_SECONDS)
-                            
-                            async with self._site_cache_lock:
-                                self._site_cache[url] = (time.time(), valid_servers)
-                            
-                            logger.info(f"Updated dynamic site cache for {url} with {len(valid_servers)} working servers")
-                        except Exception as e:
-                            logger.error(f"Failed dynamic site check for {url}: {e}")
+                        async with sem:
+                            site_base_port = self.settings.BASE_PORT + 20000 + (idx * 1000)
+                            try:
+                                valid_servers = await self.xray_service.evaluate_site_accessibility(url, working, base_port=site_base_port)
+                                await self.storage_service.save_servers(f"site_servers:{url}", [s.model_dump() for s in valid_servers], ttl=self.settings.SITE_CACHE_TTL_SECONDS)
+                                
+                                async with self._site_cache_lock:
+                                    self._site_cache[url] = (time.time(), valid_servers)
+                                
+                                logger.info(f"Updated dynamic site cache for {url} with {len(valid_servers)} working servers")
+                            except Exception as e:
+                                logger.error(f"Failed dynamic site check for {url}: {e}")
 
                     tasks = [test_api_site(url, i) for i, url in enumerate(active_sites)]
                     await asyncio.gather(*tasks)

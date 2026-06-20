@@ -37,6 +37,7 @@ class TestStorageServiceCaching(unittest.IsolatedAsyncioTestCase):
         active = await storage.get_active_site_requests(5 * 86400) # 5 days
         self.assertIn("https://google.com", active)
         self.assertNotIn("https://facebook.com", active)
+        storage.redis.hdel.assert_called_once_with("site_requests", "https://facebook.com")
 
 class TestSubscriptionManagerCaching(unittest.IsolatedAsyncioTestCase):
     async def test_get_site_specific_servers_uses_cache(self):
