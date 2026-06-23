@@ -196,7 +196,8 @@ fun MainScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        textColor = TextPrimary,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
                         focusedBorderColor = PrimaryNeon,
                         unfocusedBorderColor = Color(0xFF3F3B5C),
                         containerColor = Color(0xFF14131D)
@@ -265,7 +266,7 @@ fun MainScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon)
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(size = 20.dp, color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                         } else {
                             Icon(Icons.Default.Refresh, contentDescription = "Fetch")
                             Spacer(modifier = Modifier.width(6.dp))
@@ -328,7 +329,7 @@ fun MainScreen(
                             modifier = Modifier.weight(1.2f)
                         ) {
                             if (isTestingLatencies) {
-                                CircularProgressIndicator(size = 18.dp, color = Color.White)
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
                             } else {
                                 Icon(Icons.Default.PlayArrow, contentDescription = "Test")
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -409,7 +410,8 @@ fun MainScreen(
                     .fillMaxWidth()
                     .padding(bottom = 8.dp),
                 colors = TextFieldDefaults.outlinedTextFieldColors(
-                    textColor = TextPrimary,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
                     focusedBorderColor = SecondaryNeon,
                     unfocusedBorderColor = Color(0xFF2D2B3D),
                     containerColor = Color(0xFF14131D)
