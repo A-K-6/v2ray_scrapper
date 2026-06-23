@@ -116,6 +116,30 @@ curl -X POST http://localhost:8084/subscription/test \
   --data-binary @subscription.txt
 ```
 
+## 📱 Android Client App (V2Ray Updater)
+
+A native Android application (`android-client`) built with Kotlin and Jetpack Compose. It allows you to download and sync your scraper's live proxies directly on your mobile device.
+
+### Features
+- **Fetch & View List:** Enter your scraper API endpoint (e.g., `http://<your-vps-ip>:8084/cache/base64`) or GitHub raw subscription URL. The app decodes and displays VMess, VLESS, Trojan, and Shadowsocks nodes in a modern, dark-themed UI.
+- **Local Latency Testing:** Run concurrent TCP connection checks (TCP Ping) directly from your phone to test real-time node availability on your mobile network.
+- **Clipboard Sync:** One-click copy for individual proxy configs or the entire subscription payload.
+- **Quick Client Launch:** Deep integration shortcuts to quickly open common Android V2Ray clients like `v2rayNG`, `Nekobox`, and `Sing-Box` to import configs.
+
+### 📦 Automated GitHub Releases
+The project features a CI/CD workflow that automatically compiles the Android client and attaches the installer files to GitHub Releases!
+
+To build and publish:
+1. Push a version tag to your GitHub repository:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+2. GitHub Actions will trigger, compiling two APKs:
+   - **`app-debug.apk` (Recommended):** Pre-signed with a debug key. Ready to download, install, and run immediately on your Android device.
+   - **`app-release-unsigned.apk`:** Unsigned release build suitable for signing with custom keys.
+3. Download the generated APKs from the **Releases** page of your GitHub repository.
+
 ---
 
 ## 📦 Manual Installation (Dev)

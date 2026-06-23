@@ -28,6 +28,7 @@ The system handles the entire lifecycle of a proxy configuration:
 3.  **Testing:** Performing real-latency tests using the `xray` binary (not just ICMP ping).
 4.  **Enrichment:** Adding Geo-IP data (Country Code and Flag) to server metadata.
 5.  **Distribution:** Exposing results via a REST API (JSON, Base64, Raw) and optionally pushing to a Git repository.
+6.  **Client Sync (Android App):** A lightweight Android updater application that fetches the live configuration, supports local TCP latency checks, and copies or forwards configurations to local V2Ray clients.
 
 ---
 
@@ -91,6 +92,14 @@ The system MUST expose a RESTful API with the following endpoints:
 *   **FR-14:** The system MUST support site-specific file generation (e.g., `www_google_com.txt`) in the Git repo.
 *   **FR-15:** The system MUST handle authentication via Personal Access Tokens (PAT).
 
+### 3.6 Android Client App
+*   **FR-16:** The Android app MUST allow configuring and persisting a subscription or API URL.
+*   **FR-17:** The Android app MUST fetch subscription payloads, automatically decode them (supporting base64/raw formats), and parse VMess, VLESS, Trojan, and Shadowsocks URIs.
+*   **FR-18:** The Android app MUST display the parsed nodes in a list showing protocol type, name/remark, and server address.
+*   **FR-19:** The Android app MUST support testing local TCP connection latency (TCP Ping) to each node in parallel.
+*   **FR-20:** The Android app MUST provide buttons to copy individual configurations or the full subscription list to the system clipboard.
+*   **FR-21:** The Android app MUST include quick action shortcuts to launch local V2Ray client apps such as v2rayNG, Nekobox, and Sing-Box.
+
 ---
 
 ## 4. Non-Functional Requirements
@@ -113,13 +122,15 @@ The system MUST expose a RESTful API with the following endpoints:
 ## 5. Technical Architecture
 
 ### 5.1 Tech Stack
-*   **Language:** Python 3.11+
+*   **Language:** Python 3.11+, Go (for high-performance scraping & testing core)
 *   **Web Framework:** FastAPI (ASGI)
 *   **Concurrency:** `asyncio`, `aiohttp`
 *   **Proxy Core:** Project Xray (Golang binary)
 *   **Data Enrichment:** `geoip2` (MaxMind DB)
 *   **Validation:** Pydantic
 *   **Settings:** Pydantic-Settings
+*   **Android Client:** Kotlin, Jetpack Compose, Gradle, Coroutines
+*   **CI/CD:** GitHub Actions (workflows for automated Android builds)
 
 ### 5.2 Data Flow
 1.  **Startup:** `SubscriptionService` initializes, downloads/loads Geo-IP database, and starts the background loop.

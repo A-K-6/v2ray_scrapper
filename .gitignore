@@ -216,3 +216,9 @@ src/subscription_repo
 config.yaml
 src/state.json
 state.json
+
+# Gradle files
+.gradle/
+*.apk
+*.aar
+

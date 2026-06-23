@@ -2,6 +2,16 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-06-23] - Android Client & GitHub Actions Compilation
+- **Task:** Create a lightweight Native Android client app (using Kotlin + Jetpack Compose) to retrieve working proxy lists from the scraper API or GitHub, test latencies locally via TCP ping, and quickly open/copy configurations. Add CI/CD build actions.
+- **Changes:**
+  - Created [android-client](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/) containing a native Kotlin project using Jetpack Compose.
+  - Implemented [MainActivity.kt](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/app/src/main/java/com/example/v2rayupdater/MainActivity.kt) for fetching subscription files, parsing VMess, VLESS, Trojan, and Shadowsocks URIs, displaying them in a dark theme list, copying configs, launching external V2Ray apps (v2rayNG, Nekobox, Sing-Box), and testing server latency directly via TCP Socket connections in parallel.
+  - Configured Gradle dependencies and Android project structures via [build.gradle](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/build.gradle), [app/build.gradle](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/app/build.gradle), and [settings.gradle](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/settings.gradle).
+  - Added a GitHub Actions workflow in [android.yml](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/.github/workflows/android.yml) to automatically compile debug (pre-signed) and release APKs on tag pushes (`v*`) or manual triggers and publish them to GitHub Releases.
+- **Goal:** Provide a simple, download-and-use mobile client to sync and test working proxy subscriptions locally.
+- **Status:** Completed.
+
 ## [2026-06-21] - Caching Overhaul & Dynamic Site Caching
 - **Task:** Implement Redis caching for site-specific API responses, track dynamic site requests, and test them during background update cycles to provide fresh subscription configs.
 - **Changes:**
