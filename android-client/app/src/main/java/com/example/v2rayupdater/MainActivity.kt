@@ -14,9 +14,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
@@ -131,13 +133,18 @@ fun MainScreen(
     onLaunchClient: (String) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val presets = listOf(
+        Pair("My Verified (tci_ir)", "https://raw.githubusercontent.com/A-K-6/v2ray_scrapper_repo/tci_ir/subscription.txt"),
+        Pair("Epodonios Configs", "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"),
+        Pair("Barry-Far Configs", "https://raw.githubusercontent.com/barry-far/V2ray-config/main/All_Configs_base64_Sub.txt")
+    )
     var subscriptionUrl by remember {
-        mutableStateOf(sharedPreferences.getString("sub_url", "https://raw.githubusercontent.com/freefq/free/master/v2") ?: "")
+        mutableStateOf(sharedPreferences.getString("sub_url", "https://raw.githubusercontent.com/A-K-6/v2ray_scrapper_repo/tci_ir/subscription.txt") ?: "")
     }
     var rawConfigData by remember { mutableStateOf("") }
     var nodesList by remember { mutableStateOf(listOf<ProxyNode>()) }
     var isLoading by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf("Enter URL and Fetch Subscription") }
+    var statusMessage by remember { mutableStateOf("Select Preset or URL and Fetch") }
     var isTestingLatencies by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -196,7 +203,41 @@ fun MainScreen(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Presets:",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presets.forEach { preset ->
+                        val isSelected = subscriptionUrl == preset.second
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSelected) PrimaryNeon else Color(0xFF14131D))
+                                .border(1.dp, if (isSelected) PrimaryNeon else Color(0xFF3F3B5C), RoundedCornerShape(6.dp))
+                                .clickable { subscriptionUrl = preset.second }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = preset.first,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color.White else TextPrimary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
