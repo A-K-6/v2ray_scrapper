@@ -109,30 +109,40 @@ class Settings(BaseSettings):
     def load_app_config(self):
         """Loads and validates the YAML configuration file."""
         path = self.YAML_CONFIG_PATH
-        if not os.path.exists(path):
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = yaml.safe_load(f) or {}
+                
+                self.app_config = AppYamlConfig(**data)
+                
+                # Override settings with YAML values if they are explicitly provided
+                if "git" in data and isinstance(data["git"], dict):
+                    if "branch" in data["git"]:
+                        self.GITHUB_BRANCH = self.app_config.git.branch
+                        logger.info(f"Overriding GITHUB_BRANCH from YAML: {self.GITHUB_BRANCH}")
+                    if "push_interval" in data["git"]:
+                        self.CACHE_INTERVAL_SECONDS = self.app_config.git.push_interval
+                        logger.info(f"Overriding CACHE_INTERVAL_SECONDS from YAML: {self.CACHE_INTERVAL_SECONDS}")
+
+                logger.info(f"Loaded YAML config from {path} with {len(self.app_config.sites)} sites.")
+            except ValidationError as e:
+                logger.error(f"Invalid YAML configuration in {path}: {e}")
+            except Exception as e:
+                logger.error(f"Failed to load YAML config {path}: {e}")
+        else:
             logger.warning(f"YAML config file not found at {path}. Using default empty config.")
-            return
 
-        try:
-            with open(path, "r") as f:
-                data = yaml.safe_load(f) or {}
-            
-            self.app_config = AppYamlConfig(**data)
-            
-            # Override settings with YAML values if they are explicitly provided
-            if "git" in data and isinstance(data["git"], dict):
-                if "branch" in data["git"]:
-                    self.GITHUB_BRANCH = self.app_config.git.branch
-                    logger.info(f"Overriding GITHUB_BRANCH from YAML: {self.GITHUB_BRANCH}")
-                if "push_interval" in data["git"]:
-                    self.CACHE_INTERVAL_SECONDS = self.app_config.git.push_interval
-                    logger.info(f"Overriding CACHE_INTERVAL_SECONDS from YAML: {self.CACHE_INTERVAL_SECONDS}")
-
-            logger.info(f"Loaded YAML config from {path} with {len(self.app_config.sites)} sites.")
-        except ValidationError as e:
-            logger.error(f"Invalid YAML configuration in {path}: {e}")
-        except Exception as e:
-            logger.error(f"Failed to load YAML config {path}: {e}")
+        # Fallback to PRECHECK_SITES if no sites configured in YAML
+        if not self.app_config.sites and self.PRECHECK_SITES:
+            fallback_sites = []
+            urls = [self.PRECHECK_SITES] if isinstance(self.PRECHECK_SITES, str) else self.PRECHECK_SITES
+            for url in urls:
+                clean_host = url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+                filename = f"{clean_host.replace('.', '_')}.txt"
+                fallback_sites.append(SiteConfig(url=url, filename=filename, enabled=True))
+            self.app_config.sites = fallback_sites
+            logger.info(f"Populated fallback sites from PRECHECK_SITES: {len(fallback_sites)} sites.")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

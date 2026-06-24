@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.*
+import androidx.compose.ui.platform.LocalContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -127,8 +128,10 @@ fun MainScreen(
     onCopyToClipboard: (String, String) -> Unit,
     onLaunchClient: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var activeTab by remember { mutableStateOf(0) }
+    var sortOrder by remember { mutableStateOf("latency") }
 
     // --- State Persistence & Helpers ---
     var coreApiUrl by remember {
@@ -377,13 +380,31 @@ fun MainScreen(
                                 },
                                 enabled = !isTestingLatencies && nodesList.isNotEmpty(),
                                 colors = ButtonDefaults.buttonColors(containerColor = SecondaryNeon),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1.2f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 if (isTestingLatencies) {
                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
                                 } else {
-                                    Text("Local TCP Ping", fontSize = 11.sp)
+                                    Text("TCP Ping", fontSize = 11.sp)
                                 }
+                            }
+
+                            Button(
+                                onClick = {
+                                    val workingConfigs = nodesList.filter { it.localLatency >= 0 }.joinToString("\n") { it.rawUri }
+                                    if (workingConfigs.isNotBlank()) {
+                                        onCopyToClipboard("Working Configs", workingConfigs)
+                                    } else {
+                                        Toast.makeText(context, "No working nodes to copy", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                enabled = nodesList.any { it.localLatency >= 0 },
+                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+                                modifier = Modifier.weight(1.2f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text("Copy Working", fontSize = 11.sp, color = Color.White)
                             }
 
                             Button(
@@ -393,7 +414,8 @@ fun MainScreen(
                                 },
                                 enabled = nodesList.isNotEmpty(),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A5568)),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 Text("Copy All", fontSize = 11.sp)
                             }
@@ -423,7 +445,7 @@ fun MainScreen(
                     }
                 }
 
-                // Search Filter
+                // Search Filter & Sort Options
                 if (nodesList.isNotEmpty()) {
                     OutlinedTextField(
                         value = searchQuery,
@@ -439,6 +461,36 @@ fun MainScreen(
                             containerColor = Color(0xFF14131D)
                         )
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Sort:", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                        listOf(
+                            Pair("latency", "⚡ Latency"),
+                            Pair("protocol", "🛡️ Protocol"),
+                            Pair("name", "🔤 Name")
+                        ).forEach { (key, label) ->
+                            val isSelected = sortOrder == key
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) SecondaryNeon else Color(0xFF14131D))
+                                    .border(1.dp, if (isSelected) SecondaryNeon else Color(0xFF3F3B5C), RoundedCornerShape(6.dp))
+                                    .clickable { sortOrder = key }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) Color.White else TextPrimary
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Render Nodes
@@ -447,11 +499,24 @@ fun MainScreen(
                             it.protocol.contains(searchQuery, ignoreCase = true)
                 }
 
+                val sortedNodes = when (sortOrder) {
+                    "latency" -> filtered.sortedWith(compareBy {
+                        when (it.localLatency) {
+                            -2L -> Long.MAX_VALUE - 1
+                            -1L -> Long.MAX_VALUE
+                            else -> it.localLatency
+                        }
+                    })
+                    "protocol" -> filtered.sortedBy { it.protocol }
+                    "name" -> filtered.sortedBy { it.remark }
+                    else -> filtered
+                }
+
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(filtered) { node ->
+                    items(sortedNodes) { node ->
                         NodeCard(node = node, onCopy = { onCopyToClipboard("V2Ray Node", node.rawUri) })
                     }
                 }

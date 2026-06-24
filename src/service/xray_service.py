@@ -217,12 +217,17 @@ class XrayService:
 
         base_port = base_port or self.settings.BASE_PORT
         raw_uris = [s.raw_uri for s in servers]
+        
+        target_url = test_url or self.settings.LATENCY_TEST_URL
+        is_site_check = False
+        if test_url and test_url != self.settings.LATENCY_TEST_URL:
+            is_site_check = True
 
         results = await self._call_go_tester(
             raw_uris=raw_uris, 
-            test_url=test_url or self.settings.LATENCY_TEST_URL, 
+            test_url=target_url, 
             base_port=base_port, 
-            is_site_check=False
+            is_site_check=is_site_check
         )
 
         if not results:
