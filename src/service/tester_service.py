@@ -30,7 +30,7 @@ class TesterService:
         server.raw_uri = server.to_uri()
         return server
 
-    async def run_cycle(self, candidates: List[ProxyServer]) -> Tuple[List[ProxyServer], List[ProxyServer]]:
+    async def run_cycle(self, candidates: List[ProxyServer], test_url: Optional[str] = None, max_delay_ms: Optional[int] = None) -> Tuple[List[ProxyServer], List[ProxyServer]]:
         """
         Runs a test cycle. 
         Returns (working_servers, updated_candidates)
@@ -63,7 +63,7 @@ class TesterService:
                 if (batch_idx + 1) % log_interval == 0 or (batch_idx + 1) == total_batches:
                     logger.info(f"Processing batch {batch_idx + 1}/{total_batches}...")
                 
-                return await self.xray_service.run_test_batch(batch, base_port=batch_base_port)
+                return await self.xray_service.run_test_batch(batch, base_port=batch_base_port, test_url=test_url)
             finally:
                 # Small cooldown to let OS release ports (avoid TIME_WAIT issues)
                 await asyncio.sleep(2)
@@ -82,9 +82,10 @@ class TesterService:
         # 2. Process Results
         currently_working = []
         updated_candidates = []
+        limit_delay = max_delay_ms if max_delay_ms is not None else self.settings.MAX_DELAY_MS
 
         for server, delay in all_results:
-            if delay <= self.settings.MAX_DELAY_MS:
+            if delay <= limit_delay:
                 # Success: reset fail count and mark as working
                 server.fail_count = 0
                 enriched = self.enrich_server(server, delay)

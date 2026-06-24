@@ -369,5 +369,40 @@ class SubscriptionManager:
             working, _ = await self.tester.run_cycle(candidates)
             return working
 
+    async def test_custom_subscription(
+        self,
+        subscription_urls: List[str],
+        custom_content: Optional[str] = None,
+        test_url: Optional[str] = None,
+        max_delay_ms: Optional[int] = None,
+        limit: int = 50
+    ) -> Optional[List[ProxyServer]]:
+        # 1. Fetch from URLs
+        candidates = []
+        if subscription_urls:
+            candidates.extend(await self.scraper.fetch_urls(subscription_urls))
+        
+        # 2. Parse custom content if any
+        if custom_content:
+            candidates.extend(self.parse_subscription_content(custom_content))
+            
+        # Deduplicate based on fingerprint
+        seen_fps = {}
+        for s in candidates:
+            seen_fps[s.fingerprint] = s
+        candidates = list(seen_fps.values())
+        
+        if not candidates:
+            return []
+            
+        if self._processing_lock.locked():
+            return None
+            
+        async with self._processing_lock:
+            working, _ = await self.tester.run_cycle(candidates, test_url=test_url, max_delay_ms=max_delay_ms)
+            # Sort and apply limit
+            working.sort(key=lambda s: s.delay if s.delay > 0 else float("inf"))
+            return working[:limit]
+
     def is_processing(self) -> bool:
         return self._processing_lock.locked()

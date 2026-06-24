@@ -2,6 +2,22 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-06-24] - Custom Testing & Settings Dashboard
+- **Task:** Implement custom subscription and site testing via backend Core API, and add a dynamic configuration dashboard to the Jetpack Compose Android client to control subscription URLs, check targets, and latency/config limits.
+- **Changes:**
+  - Added new dynamic `/subscription/test-custom` endpoint in [main.py](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/src/main.py) accepting subscription list, target test URL, max delay, and config limit.
+  - Extended `fetch_urls` dynamic scraping support in [scraper_service.py](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/src/service/scraper_service.py).
+  - Updated `run_cycle` in [tester_service.py](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/src/service/tester_service.py) and `run_test_batch` in [xray_service.py](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/src/service/xray_service.py) to use dynamic test URLs and delay limits.
+  - Refactored [MainActivity.kt](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/android-client/app/src/main/java/com/example/v2rayupdater/MainActivity.kt) into a 4-tab dashboard UI:
+    - **Nodes View:** Triggers dynamic server-side Core tests or local socket checks.
+    - **Subs View:** Toggles active subscriptions and supports adding custom URLs.
+    - **Sites View:** Manages target check URLs (Google, YouTube, custom sites).
+    - **Settings View:** Manages Core endpoint, maximum latency delay slider, and config limits slider.
+  - Wrote unit tests in [test_custom_test.py](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/tests/test_custom_test.py).
+  - Fixed Python 3.14 virtual environment dependency builds in [requirements.txt](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/requirements.txt) by updating Pydantic and typing-inspection packages.
+- **Goal:** Give client users comprehensive control to check arbitrary configurations against selected censored websites on the Core.
+- **Status:** Completed.
+
 ## [2026-06-23] - Android Client & GitHub Actions Compilation
 - **Task:** Create a lightweight Native Android client app (using Kotlin + Jetpack Compose) to retrieve working proxy lists from the scraper API or GitHub, test latencies locally via TCP ping, and quickly open/copy configurations. Add CI/CD build actions.
 - **Changes:**

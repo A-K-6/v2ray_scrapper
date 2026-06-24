@@ -211,7 +211,7 @@ class XrayService:
             base_port=base_port
         )
 
-    async def run_test_batch(self, servers: List[ProxyServer], base_port: Optional[int] = None) -> List[Tuple[ProxyServer, float]]:
+    async def run_test_batch(self, servers: List[ProxyServer], base_port: Optional[int] = None, test_url: Optional[str] = None) -> List[Tuple[ProxyServer, float]]:
         if not servers:
             return []
 
@@ -220,7 +220,7 @@ class XrayService:
 
         results = await self._call_go_tester(
             raw_uris=raw_uris, 
-            test_url=self.settings.LATENCY_TEST_URL, 
+            test_url=test_url or self.settings.LATENCY_TEST_URL, 
             base_port=base_port, 
             is_site_check=False
         )

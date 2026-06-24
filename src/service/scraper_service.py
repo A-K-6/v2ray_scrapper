@@ -84,3 +84,34 @@ class ScraperService:
             final_list = final_list[:self.settings.LOW_INTERNET_LIMIT]
 
         return final_list
+
+    async def fetch_urls(self, urls: List[str]) -> List[ProxyServer]:
+        logger.info(f"Fetching {len(urls)} custom subscriptions...")
+        tasks = []
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            for url in urls:
+                tasks.append(self._fetch_single_url(session, url))
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        seen_fingerprints = {}
+        total_found = 0
+        failed_sources = 0
+        for url, batch in zip(urls, results):
+            if isinstance(batch, Exception):
+                failed_sources += 1
+                logger.error(f"Skipping failed subscription source {url}: {batch}")
+                continue
+            total_found += len(batch)
+            for server in batch:
+                fp = server.fingerprint
+                if fp not in seen_fingerprints:
+                    seen_fingerprints[fp] = server
+        
+        final_list = list(seen_fingerprints.values())
+        logger.info(
+            f"Custom fetch complete. Found {total_found} servers. Unique servers: {len(final_list)}. "
+            f"Failed: {failed_sources}/{len(urls)}"
+        )
+        return final_list
+

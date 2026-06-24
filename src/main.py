@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 import uvicorn
 
 from core.config import settings
@@ -145,6 +146,33 @@ async def test_subscription_content(content: str = Body(..., media_type="text/pl
 
     if not working_servers:
         return {"count": 0, "servers": []}
+
+    return {"count": len(working_servers), "servers": working_servers}
+
+class CustomTestRequest(BaseModel):
+    subscription_urls: List[str] = Field(default_factory=list, description="List of subscription URLs to fetch.")
+    custom_content: Optional[str] = Field(default=None, description="Plaintext or base64 subscription configs content.")
+    test_url: Optional[str] = Field(default=None, description="Dynamic latency target URL.")
+    max_delay_ms: Optional[int] = Field(default=None, description="Override maximum allowed latency.")
+    limit: int = Field(default=50, ge=1, le=500, description="Limit of working servers to return.")
+
+@app.post(
+    "/subscription/test-custom",
+    summary="Test custom subscriptions against custom parameters",
+    response_model=ServerResponse,
+    description="Accepts subscription URLs, custom raw content, test target, limit and delay, and returns working servers.",
+)
+async def test_custom_subscription(req: CustomTestRequest):
+    working_servers = await manager.test_custom_subscription(
+        subscription_urls=req.subscription_urls,
+        custom_content=req.custom_content,
+        test_url=req.test_url,
+        max_delay_ms=req.max_delay_ms,
+        limit=req.limit
+    )
+
+    if working_servers is None:
+        raise HTTPException(status_code=429, detail="A test is already in progress.")
 
     return {"count": len(working_servers), "servers": working_servers}
 
