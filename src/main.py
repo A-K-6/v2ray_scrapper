@@ -114,7 +114,8 @@ async def get_cached_all_base64(
     description="Tests all cached servers against a target URL and returns a Base64 subscription.",
 )
 async def get_site_specific_subscription(
-    url: str = Query(..., description="The target URL to test against (e.g., https://www.google.com)")
+    url: str = Query(..., description="The target URL to test against (e.g., https://www.google.com)"),
+    country: Optional[str] = Query(None, description="Filter by country codes (e.g., US,DE)")
 ):
     successful_servers = await manager.get_site_specific_servers(url)
 
@@ -124,10 +125,11 @@ async def get_site_specific_subscription(
          else:
              raise HTTPException(status_code=503, detail="Cache is empty.")
     
-    if not successful_servers:
+    filtered = filter_servers(successful_servers, country)
+    if not filtered:
         raise HTTPException(status_code=404, detail=f"No servers could access {url}.")
 
-    raw_links = [s.raw_uri for s in successful_servers]
+    raw_links = [s.raw_uri for s in filtered]
     combined = "\n".join(raw_links)
     encoded = base64.b64encode(combined.encode()).decode()
     return Response(encoded, media_type="text/plain")
