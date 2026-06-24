@@ -2,6 +2,13 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-06-24] - Unified Go Core Service (Planned)
+- **Task:** Draft design plan to migrate the FastAPI API server, Redis caching layer, and ARQ task worker entirely into a single Go-based service.
+- **Changes:**
+  - Created [014-unified-go-core.md](file:///home/aeen/Aeen/Code/PProjects/v2ray_scrapper/ideas/todo/014-unified-go-core.md) containing structural goals, migration steps, and execution path.
+- **Goal:** Eliminate Python, Redis, and ARQ to make the core backend compile to a single, dependency-free binary with very low RAM and container footprint.
+- **Status:** Planning.
+
 ## [2026-06-24] - Custom Testing & Settings Dashboard
 - **Task:** Implement custom subscription and site testing via backend Core API, and add a dynamic configuration dashboard to the Jetpack Compose Android client to control subscription URLs, check targets, and latency/config limits.
 - **Changes:**
