@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,36 +34,48 @@ func (t *Tester) Test(ctx context.Context, servers []ProxyServer, target string,
 		return nil
 	}
 	type batch struct {
-		index, slot int
-		servers     []ProxyServer
+		start   int
+		servers []ProxyServer
 	}
-	batchCount := (len(servers) + t.config.BatchSize - 1) / t.config.BatchSize
+	batchSize := max(1, t.config.BatchSize)
+	batchCount := (len(servers) + batchSize - 1) / batchSize
 	jobs := make(chan batch)
-	results := make(chan []TestResult, batchCount)
-	workers := min(t.config.MaxConcurrentBatches, batchCount)
+	type completedBatch struct {
+		start   int
+		results []TestResult
+	}
+	results := make(chan completedBatch, batchCount)
+	workers := min(max(1, t.config.MaxConcurrentBatches), batchCount)
 	var wg sync.WaitGroup
 	for slot := 0; slot < workers; slot++ {
 		wg.Add(1)
 		go func(slot int) {
 			defer wg.Done()
 			for job := range jobs {
-				basePort := t.config.BasePort + slot*t.config.BatchSize
-				results <- t.testBatch(ctx, job.servers, target, siteCheck, basePort)
+				basePort := t.config.BasePort + slot*batchSize
+				results <- completedBatch{start: job.start, results: t.testBatch(ctx, job.servers, target, siteCheck, basePort)}
 			}
 		}(slot)
 	}
 	go func() {
-		for i := 0; i < len(servers); i += t.config.BatchSize {
-			end := min(i+t.config.BatchSize, len(servers))
-			jobs <- batch{index: i / t.config.BatchSize, servers: servers[i:end]}
+		for i := 0; i < len(servers); i += batchSize {
+			end := min(i+batchSize, len(servers))
+			select {
+			case jobs <- batch{start: i, servers: servers[i:end]}:
+			case <-ctx.Done():
+				close(jobs)
+				wg.Wait()
+				close(results)
+				return
+			}
 		}
 		close(jobs)
 		wg.Wait()
 		close(results)
 	}()
-	all := make([]TestResult, 0, len(servers))
-	for result := range results {
-		all = append(all, result...)
+	all := failedResults(servers)
+	for completed := range results {
+		copy(all[completed.start:], completed.results)
 	}
 	return all
 }
@@ -75,7 +89,7 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 		inbounds = append(inbounds, map[string]any{"tag": inTag, "port": basePort + i, "listen": "127.0.0.1", "protocol": "socks", "settings": map[string]any{"auth": "noauth", "udp": true}})
 		outbound, err := server.XrayOutbound(outTag)
 		if err != nil {
-			outbound = map[string]any{"tag": outTag, "protocol": "blackhole"}
+			return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, i, err)
 		}
 		outbounds = append(outbounds, outbound)
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{inTag}, "outboundTag": outTag})
@@ -113,6 +127,9 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 		}
 		output := combinedProcessOutput(stdout.String(), stderr.String())
 		if len(servers) > 1 && ctx.Err() == nil {
+			if invalid := invalidOutboundIndex(output); invalid >= 0 && invalid < len(servers) {
+				return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, invalid, fmt.Errorf("xray rejected outbound %d", invalid))
+			}
 			slog.Warn("xray rejected a batch; isolating invalid configurations", "batch_size", len(servers), "error", startErr, "output", output)
 			middle := len(servers) / 2
 			left := t.testBatch(ctx, servers[:middle], target, siteCheck, basePort)
@@ -127,12 +144,12 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	result := make([]TestResult, len(servers))
 	tasks := make(chan int)
 	var wg sync.WaitGroup
-	for range min(50, len(servers)) {
+	for range min(max(1, t.config.MaxConcurrentTests), len(servers)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for i := range tasks {
-				delay := testSOCKSProxy(processCtx, basePort+i, target, t.config.TestTimeout, siteCheck)
+				delay := testSOCKSProxy(processCtx, basePort+i, target, t.config.TestTimeout, siteCheck, max(1, t.config.TestAttempts))
 				result[i] = TestResult{Server: servers[i], Delay: delay, Failed: delay < 0}
 			}
 		}()
@@ -145,6 +162,40 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	cancel()
 	<-done
 	return result
+}
+
+func (t *Tester) testBuildableBatch(ctx context.Context, servers []ProxyServer, target string, siteCheck bool, basePort, invalid int, cause error) []TestResult {
+	slog.Debug("skipping Xray-incompatible configuration", "protocol", servers[invalid].Protocol, "address", servers[invalid].Address, "error", cause)
+	result := failedResults(servers)
+	valid := make([]ProxyServer, 0, len(servers)-1)
+	positions := make([]int, 0, len(servers)-1)
+	for i, server := range servers {
+		if i != invalid {
+			valid = append(valid, server)
+			positions = append(positions, i)
+		}
+	}
+	if len(valid) == 0 {
+		return result
+	}
+	for i, tested := range t.testBatch(ctx, valid, target, siteCheck, basePort) {
+		result[positions[i]] = tested
+	}
+	return result
+}
+
+var outboundIndexPattern = regexp.MustCompile(`(?:tag|outbound) out-(\d+)`)
+
+func invalidOutboundIndex(output string) int {
+	match := outboundIndexPattern.FindStringSubmatch(output)
+	if len(match) != 2 {
+		return -1
+	}
+	index, err := strconv.Atoi(match[1])
+	if err != nil {
+		return -1
+	}
+	return index
 }
 
 func combinedProcessOutput(stdout, stderr string) string {
@@ -185,32 +236,50 @@ func waitForPort(ctx context.Context, port int, timeout time.Duration, exited <-
 	}
 }
 
-func testSOCKSProxy(ctx context.Context, port int, target string, timeout time.Duration, siteCheck bool) int {
+func testSOCKSProxy(ctx context.Context, port int, target string, timeout time.Duration, siteCheck bool, attempts int) int {
 	dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, &net.Dialer{Timeout: timeout})
 	if err != nil {
 		return -1
 	}
-	transport := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+	transport := &http.Transport{DisableKeepAlives: true, ForceAttemptHTTP2: true, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
+			return contextDialer.DialContext(ctx, network, address)
+		}
 		return dialer.Dial(network, address)
 	}}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: timeout}
 	if !siteCheck {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return -1
+	totalDelay := int64(0)
+	for range max(1, attempts) {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if err != nil {
+			return -1
+		}
+		start := time.Now()
+		response, err := client.Do(request)
+		if err != nil {
+			return -1
+		}
+		response.Body.Close()
+		if !successfulProbe(response.StatusCode, target, siteCheck) {
+			return -1
+		}
+		totalDelay += time.Since(start).Milliseconds()
 	}
-	start := time.Now()
-	response, err := client.Do(request)
-	if err != nil {
-		return -1
+	return max(1, int(totalDelay/int64(max(1, attempts))))
+}
+
+func successfulProbe(status int, target string, siteCheck bool) bool {
+	if !siteCheck && strings.Contains(target, "generate_204") {
+		return status == http.StatusNoContent
 	}
-	response.Body.Close()
-	if (siteCheck && response.StatusCode < 400) || (!siteCheck && response.StatusCode >= 200 && response.StatusCode < 300) {
-		return int(time.Since(start).Milliseconds())
+	if siteCheck {
+		return status >= 200 && status < 400
 	}
-	return -1
+	return status >= 200 && status < 300
 }
 
 func failedResults(servers []ProxyServer) []TestResult {

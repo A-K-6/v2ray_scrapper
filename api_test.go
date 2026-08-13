@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
 )
 
 func TestCachedEndpoints(t *testing.T) {
@@ -32,6 +34,49 @@ func TestCachedEndpoints(t *testing.T) {
 	}
 	if string(decoded) != service.working[0].RawURI {
 		t.Fatalf("body=%q", decoded)
+	}
+}
+
+func TestManagementRoutesPersistSubscriptionsAndSitesInRedis(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	config := Config{
+		StatePath: statePath, GeoIPPath: "missing.mmdb", RedisURL: "redis://" + redisServer.Addr(),
+		RedisPrefix: "test", ManagementToken: "secret", SubscriptionURLs: []string{"https://seed.example/sub"},
+		Sites: []SiteConfig{{URL: "https://seed.example", Filename: "seed.txt"}},
+	}
+	service, err := NewService(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewAPI(service)
+
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer secret")
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, request)
+		return response
+	}
+	if response := call(http.MethodPost, "/subscriptions", `{"urls":["https://added.example/sub"]}`); response.Code != http.StatusOK {
+		t.Fatalf("add subscription: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodPost, "/sites", `{"url":"https://video.example"}`); response.Code != http.StatusCreated {
+		t.Fatalf("add site: status=%d body=%s", response.Code, response.Body.String())
+	}
+	_ = service.Close()
+
+	restarted, err := NewService(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if got := restarted.Subscriptions(); len(got) != 2 || got[0] != "https://added.example/sub" {
+		t.Fatalf("subscriptions=%v", got)
+	}
+	if got := restarted.Sites(); len(got) != 2 || got[1].URL != "https://video.example" {
+		t.Fatalf("sites=%#v", got)
 	}
 }
 
@@ -86,6 +131,8 @@ func TestEveryAPIRouteHasAnIsolatedBehaviorCheck(t *testing.T) {
 		{"site validation", http.MethodGet, "/subscription/site-specific?url=not-a-url", "", "", http.StatusBadRequest},
 		{"test empty", http.MethodPost, "/subscription/test", "", "text/plain", http.StatusOK},
 		{"test custom empty", http.MethodPost, "/subscription/test-custom", `{}`, "application/json", http.StatusOK},
+		{"subscriptions require management configuration", http.MethodGet, "/subscriptions", "", "", http.StatusServiceUnavailable},
+		{"sites require management configuration", http.MethodGet, "/sites", "", "", http.StatusServiceUnavailable},
 		{"openapi", http.MethodGet, "/openapi.json", "", "", http.StatusOK},
 		{"swagger", http.MethodGet, "/swagger", "", "", http.StatusOK},
 		{"docs alias", http.MethodGet, "/docs", "", "", http.StatusOK},

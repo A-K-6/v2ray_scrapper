@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,13 @@ type customTestRequest struct {
 	MaxDelayMS       int      `json:"max_delay_ms"`
 	Limit            int      `json:"limit"`
 }
+type subscriptionsRequest struct {
+	URLs []string `json:"urls"`
+}
+type siteRequest struct {
+	URL      string `json:"url"`
+	Filename string `json:"filename"`
+}
 
 func NewAPI(service *Service) *API {
 	a := &API{service: service, mux: http.NewServeMux()}
@@ -42,13 +50,15 @@ func NewAPI(service *Service) *API {
 	a.mux.HandleFunc("/subscription/site-specific", a.siteSpecific)
 	a.mux.HandleFunc("/subscription/test", a.testContent)
 	a.mux.HandleFunc("/subscription/test-custom", a.testCustom)
+	a.mux.HandleFunc("/subscriptions", a.subscriptions)
+	a.mux.HandleFunc("/sites", a.sites)
 	return a
 }
 
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -189,6 +199,125 @@ func (a *API) testCustom(w http.ResponseWriter, r *http.Request) {
 	}
 	servers, err := a.service.TestCustom(r.Context(), req.SubscriptionURLs, req.CustomContent, req.TestURL, req.MaxDelayMS, req.Limit)
 	writeTestResponse(w, servers, err)
+}
+
+func (a *API) subscriptions(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeManagement(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		values := a.service.Subscriptions()
+		writeJSON(w, http.StatusOK, map[string]any{"count": len(values), "subscriptions": values})
+	case http.MethodPost, http.MethodDelete:
+		var req subscriptionsRequest
+		if !decodeJSONBody(w, r, &req) {
+			return
+		}
+		req.URLs = cleanStrings(req.URLs)
+		if len(req.URLs) == 0 {
+			writeError(w, http.StatusBadRequest, "at least one subscription URL is required")
+			return
+		}
+		for _, source := range req.URLs {
+			if !validTargetURL(source) {
+				writeError(w, http.StatusBadRequest, "subscription URLs must use http or https")
+				return
+			}
+		}
+		var err error
+		if r.Method == http.MethodPost {
+			err = a.service.AddSubscriptions(r.Context(), req.URLs)
+		} else {
+			err = a.service.RemoveSubscriptions(r.Context(), req.URLs)
+		}
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		values := a.service.Subscriptions()
+		writeJSON(w, http.StatusOK, map[string]any{"count": len(values), "subscriptions": values})
+	default:
+		w.Header().Set("Allow", "GET, POST, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) sites(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeManagement(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		values := a.service.Sites()
+		writeJSON(w, http.StatusOK, map[string]any{"count": len(values), "sites": values})
+	case http.MethodPost:
+		var req siteRequest
+		if !decodeJSONBody(w, r, &req) {
+			return
+		}
+		if !validTargetURL(req.URL) {
+			writeError(w, http.StatusBadRequest, "url must be a valid http(s) URL")
+			return
+		}
+		if req.Filename == "" {
+			req.Filename = sitesFromURLs([]string{req.URL})[0].Filename
+		}
+		if _, err := safeOutputName(req.Filename); err != nil {
+			writeError(w, http.StatusBadRequest, "filename must be a safe relative path")
+			return
+		}
+		enabled := true
+		if err := a.service.PutSite(r.Context(), SiteConfig{URL: req.URL, Filename: req.Filename, Enabled: &enabled}); err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"site": SiteConfig{URL: req.URL, Filename: req.Filename, Enabled: &enabled}, "message": "site stored; it will be prechecked during refresh and is available through /subscription/site-specific"})
+	case http.MethodDelete:
+		var req siteRequest
+		if !decodeJSONBody(w, r, &req) {
+			return
+		}
+		if !validTargetURL(req.URL) {
+			writeError(w, http.StatusBadRequest, "url must be a valid http(s) URL")
+			return
+		}
+		if err := a.service.RemoveSite(r.Context(), req.URL); err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "GET, POST, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) authorizeManagement(w http.ResponseWriter, r *http.Request) bool {
+	expected := a.service.config.ManagementToken
+	if expected == "" {
+		writeError(w, http.StatusServiceUnavailable, "management routes require MANAGEMENT_TOKEN")
+		return false
+	}
+	provided := strings.TrimSpace(r.Header.Get("X-API-Key"))
+	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(authorization, "Bearer ") {
+		provided = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+	}
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		writeError(w, http.StatusUnauthorized, "invalid management token")
+		return false
+	}
+	return true
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON request")
+		return false
+	}
+	return true
 }
 func writeTestResponse(w http.ResponseWriter, servers []ProxyServer, err error) {
 	if errors.Is(err, ErrBusy) {

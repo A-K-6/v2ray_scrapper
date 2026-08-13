@@ -16,7 +16,7 @@ Existing configuration is preserved unless --force is supplied.
 Environment overrides for automation:
   INIT_HOST_PORT         Host port exposed by Docker (default: 8084)
   INIT_REFRESH_SECONDS   Refresh interval in seconds (default: 600)
-  INIT_MAX_CANDIDATES    Maximum proxies tested per refresh (default: 60)
+  INIT_MAX_CANDIDATES    Maximum proxies tested per refresh (default: 10000)
 EOF
 }
 
@@ -89,6 +89,18 @@ merge_missing_env() {
   done <"$source_file"
 }
 
+ensure_management_token() {
+  file=$1
+  current=$(awk -F= '$1 == "MANAGEMENT_TOKEN" { print substr($0, index($0, "=") + 1); exit }' "$file")
+  if [ -n "$current" ]; then
+    return
+  fi
+  generated=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+  set_env_value "$file" MANAGEMENT_TOKEN "$generated"
+  chmod 600 "$file"
+  echo "Generated a management API token in .env"
+}
+
 migrate_legacy_env() {
   file=$1
   if ! grep -Eq '^(UVICORN_HOST|UVICORN_PORT|REDIS_HOST|PYTHONPATH)=' "$file"; then
@@ -97,9 +109,11 @@ migrate_legacy_env() {
   set_env_value "$file" FETCH_TIMEOUT 20
   set_env_value "$file" TEST_TIMEOUT 6
   set_env_value "$file" XRAY_START_TIMEOUT 5
-  set_env_value "$file" BATCH_SIZE 20
-  set_env_value "$file" MAX_CONCURRENT_BATCHES 3
-  set_env_value "$file" MAX_CANDIDATES 60
+  set_env_value "$file" BATCH_SIZE 100
+  set_env_value "$file" MAX_CONCURRENT_BATCHES 10
+  set_env_value "$file" MAX_CONCURRENT_TESTS 100
+  set_env_value "$file" TEST_ATTEMPTS 2
+  set_env_value "$file" MAX_CANDIDATES 10000
   set_env_value "$file" MAX_DELAY_MS 10000
   set_env_value "$file" CACHE_INTERVAL_SECONDS 600
   set_env_value "$file" STATE_FILE_PATH /data/state.json
@@ -124,7 +138,7 @@ else
   host_port=$REPLY
   prompt "Refresh interval in seconds" "600" "${INIT_REFRESH_SECONDS:-}"
   refresh_seconds=$REPLY
-  prompt "Maximum candidates per refresh" "60" "${INIT_MAX_CANDIDATES:-}"
+  prompt "Maximum candidates per refresh" "10000" "${INIT_MAX_CANDIDATES:-}"
   max_candidates=$REPLY
 
   require_integer "Docker host port" "$host_port" 1 65535
@@ -138,6 +152,8 @@ else
   chmod 600 "$env_file"
   echo "Created .env"
 fi
+
+ensure_management_token "$env_file"
 
 if [ -f "$config_file" ] && [ "$force" != true ]; then
   echo "Keeping existing config.yaml"

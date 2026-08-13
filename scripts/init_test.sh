@@ -23,6 +23,7 @@ INIT_MAX_CANDIDATES=40 \
 grep -qx 'HOST_PORT=19084' "$test_root/.env"
 grep -qx 'CACHE_INTERVAL_SECONDS=300' "$test_root/.env"
 grep -qx 'MAX_CANDIDATES=40' "$test_root/.env"
+grep -Eq '^MANAGEMENT_TOKEN=[0-9a-f]{48}$' "$test_root/.env"
 [ -f "$test_root/config.yaml" ]
 [ -d "$test_root/data" ]
 [ -d "$test_root/bin" ]
@@ -68,11 +69,13 @@ SUB_URLS=https://example.test/custom-subscription
 GITHUB_TOKEN=test
 EOF
 INIT_ROOT="$legacy_root" INIT_NON_INTERACTIVE=true sh "$script_dir/init.sh" >/dev/null
-grep -qx 'BATCH_SIZE=20' "$legacy_root/.env"
+grep -qx 'BATCH_SIZE=100' "$legacy_root/.env"
 grep -qx 'TEST_TIMEOUT=6' "$legacy_root/.env"
 grep -qx 'CACHE_INTERVAL_SECONDS=600' "$legacy_root/.env"
-grep -qx 'MAX_CONCURRENT_BATCHES=3' "$legacy_root/.env"
-grep -qx 'MAX_CANDIDATES=60' "$legacy_root/.env"
+grep -qx 'MAX_CONCURRENT_BATCHES=10' "$legacy_root/.env"
+grep -qx 'MAX_CONCURRENT_TESTS=100' "$legacy_root/.env"
+grep -qx 'TEST_ATTEMPTS=2' "$legacy_root/.env"
+grep -qx 'MAX_CANDIDATES=10000' "$legacy_root/.env"
 grep -qx 'STATE_FILE_PATH=/data/state.json' "$legacy_root/.env"
 grep -qx 'SUB_URLS=https://example.test/custom-subscription' "$legacy_root/.env"
 grep -qx 'GITHUB_TOKEN=test' "$legacy_root/.env"

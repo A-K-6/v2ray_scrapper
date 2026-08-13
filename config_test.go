@@ -46,10 +46,10 @@ func TestProductionDefaultsMeetRefreshBudget(t *testing.T) {
 	if config.CacheInterval != 10*time.Minute {
 		t.Fatalf("refresh interval=%s", config.CacheInterval)
 	}
-	if config.MaxCandidates != 60 {
+	if config.MaxCandidates != 10000 {
 		t.Fatalf("max candidates=%d", config.MaxCandidates)
 	}
-	if config.BatchSize != 20 || config.MaxConcurrentBatches != 3 || config.TestTimeout != 6*time.Second {
+	if config.BatchSize != 100 || config.MaxConcurrentBatches != 10 || config.MaxConcurrentTests != 100 || config.TestAttempts != 2 || config.TestTimeout != 6*time.Second {
 		t.Fatalf("cold-start profile: batch=%d concurrency=%d timeout=%s", config.BatchSize, config.MaxConcurrentBatches, config.TestTimeout)
 	}
 	if len(config.SubscriptionURLs) != 3 {

@@ -94,3 +94,27 @@ func TestXrayOutboundUsesNativeHysteriaVersionTwoShape(t *testing.T) {
 		t.Fatalf("stream=%#v", stream)
 	}
 }
+
+func TestXrayOutboundRejectsLegacyShadowsocksCiphersBeforeStartingXray(t *testing.T) {
+	for _, method := range []string{"aes-256-cfb", "rc4-md5"} {
+		server := ProxyServer{Protocol: "shadowsocks", Address: "1.2.3.4", Port: 443, Method: method, Password: "secret"}
+		if _, err := server.XrayOutbound("test"); err == nil {
+			t.Errorf("method %q should be rejected", method)
+		}
+	}
+	for _, method := range []string{"aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"} {
+		server := ProxyServer{Protocol: "shadowsocks", Address: "1.2.3.4", Port: 443, Method: method, Password: "secret"}
+		if _, err := server.XrayOutbound("test"); err != nil {
+			t.Errorf("method %q: %v", method, err)
+		}
+	}
+}
+
+func TestSubscriptionDropsXrayIncompatibleNodesBeforeCandidateLimit(t *testing.T) {
+	legacy := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-cfb:secret")) + "@1.2.3.4:443"
+	valid := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:secret")) + "@1.2.3.5:443"
+	servers := ParseSubscription(legacy + "\n" + valid)
+	if len(servers) != 1 || servers[0].Address != "1.2.3.5" {
+		t.Fatalf("servers=%#v", servers)
+	}
+}

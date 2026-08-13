@@ -22,13 +22,14 @@ const openAPISpec = `{
   "info": {
     "title": "V2Ray Scrapper API",
     "description": "Scrape, test, cache, and distribute working proxy configurations.",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "servers": [{"url": "/"}],
   "tags": [
     {"name": "System"},
     {"name": "Cache"},
-    {"name": "Testing"}
+    {"name": "Testing"},
+    {"name": "Management"}
   ],
   "paths": {
     "/health": {
@@ -57,9 +58,23 @@ const openAPISpec = `{
     },
     "/subscription/test-custom": {
       "post": {"tags":["Testing"],"summary":"Test custom sources and content","operationId":"testCustomSubscription","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CustomTestRequest"}}}},"responses":{"200":{"description":"Working servers","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ServerResponse"}}}},"400":{"$ref":"#/components/responses/BadRequest"},"429":{"$ref":"#/components/responses/Busy"}}}
+    },
+    "/subscriptions": {
+      "get": {"tags":["Management"],"summary":"List Redis-backed subscription sources","operationId":"listSubscriptions","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"responses":{"200":{"description":"Subscription sources"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}},
+      "post": {"tags":["Management"],"summary":"Add Redis-backed subscription sources","operationId":"addSubscriptions","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SubscriptionsRequest"}}}},"responses":{"200":{"description":"Updated sources"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}},
+      "delete": {"tags":["Management"],"summary":"Remove Redis-backed subscription sources","operationId":"removeSubscriptions","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SubscriptionsRequest"}}}},"responses":{"200":{"description":"Updated sources"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}}
+    },
+    "/sites": {
+      "get": {"tags":["Management"],"summary":"List Redis-backed preloaded site checks","operationId":"listSites","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"responses":{"200":{"description":"Configured sites"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}},
+      "post": {"tags":["Management"],"summary":"Add or update a preloaded site check","operationId":"putSite","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SiteRequest"}}}},"responses":{"201":{"description":"Site stored"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}},
+      "delete": {"tags":["Management"],"summary":"Remove a preloaded site check","operationId":"removeSite","security":[{"ManagementApiKey":[]},{"ManagementBearer":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SiteRequest"}}}},"responses":{"204":{"description":"Site removed"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"description":"Unauthorized"},"503":{"description":"Management or Redis unavailable"}}}
     }
   },
   "components": {
+    "securitySchemes": {
+      "ManagementApiKey": {"type":"apiKey","in":"header","name":"X-API-Key"},
+      "ManagementBearer": {"type":"http","scheme":"bearer"}
+    },
     "parameters": {
       "Country": {"name":"country","in":"query","required":false,"description":"Comma-separated ISO country codes, such as US,DE","schema":{"type":"string"}}
     },
@@ -73,6 +88,8 @@ const openAPISpec = `{
       "ErrorResponse": {"type":"object","required":["detail"],"properties":{"detail":{"type":"string"}}},
       "ServerResponse": {"type":"object","required":["count","servers"],"properties":{"count":{"type":"integer","minimum":0},"servers":{"type":"array","items":{"$ref":"#/components/schemas/ProxyServer"}},"message":{"type":"string"}}},
       "CustomTestRequest": {"type":"object","properties":{"subscription_urls":{"type":"array","items":{"type":"string","format":"uri"}},"custom_content":{"type":"string"},"test_url":{"type":"string","format":"uri"},"max_delay_ms":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}},
+      "SubscriptionsRequest": {"type":"object","required":["urls"],"properties":{"urls":{"type":"array","minItems":1,"items":{"type":"string","format":"uri"}}}},
+      "SiteRequest": {"type":"object","required":["url"],"properties":{"url":{"type":"string","format":"uri"},"filename":{"type":"string"}}},
       "ProxyServer": {"type":"object","required":["protocol","address","port","delay","country_code","flag","raw_uri"],"properties":{"protocol":{"type":"string","enum":["vless","vmess","trojan","shadowsocks","hysteria2"]},"remark":{"type":"string"},"address":{"type":"string"},"port":{"type":"integer","minimum":1,"maximum":65535},"delay":{"type":"integer"},"country_code":{"type":"string"},"flag":{"type":"string"},"fail_count":{"type":"integer","minimum":0},"raw_uri":{"type":"string"},"vless_id":{"type":"string"},"vmess_id":{"type":"string"},"encryption":{"type":"string"},"security":{"type":"string"},"type":{"type":"string"},"host":{"type":"string"},"path":{"type":"string"},"sni":{"type":"string"},"flow":{"type":"string"},"fp":{"type":"string"},"pbk":{"type":"string"},"sid":{"type":"string"},"aid":{"type":"integer"},"method":{"type":"string"},"password":{"type":"string"},"insecure":{"type":"boolean"},"obfs":{"type":"string"},"obfs_password":{"type":"string"}}}
     }
   }

@@ -257,12 +257,31 @@ func (s ProxyServer) XrayOutbound(tag string) (map[string]any, error) {
 	if s.Protocol == "hysteria2" {
 		stream = map[string]any{"security": "tls"}
 	}
-	if stream["network"] == "ws" {
+	switch stream["network"] {
+	case "ws", "websocket":
 		ws := map[string]any{"path": defaultString(s.Path, "/")}
 		if s.Host != "" {
 			ws["host"] = s.Host
 		}
 		stream["wsSettings"] = ws
+	case "grpc":
+		grpc := map[string]any{"serviceName": strings.TrimPrefix(s.Path, "/")}
+		if s.Host != "" {
+			grpc["authority"] = s.Host
+		}
+		stream["grpcSettings"] = grpc
+	case "xhttp", "splithttp":
+		xhttp := map[string]any{"path": defaultString(s.Path, "/")}
+		if s.Host != "" {
+			xhttp["host"] = s.Host
+		}
+		stream["xhttpSettings"] = xhttp
+	case "httpupgrade":
+		upgrade := map[string]any{"path": defaultString(s.Path, "/")}
+		if s.Host != "" {
+			upgrade["host"] = s.Host
+		}
+		stream["httpupgradeSettings"] = upgrade
 	}
 	security, _ := stream["security"].(string)
 	if security == "tls" || security == "reality" {
@@ -294,6 +313,9 @@ func (s ProxyServer) XrayOutbound(tag string) (map[string]any, error) {
 	case "trojan":
 		return map[string]any{"tag": tag, "protocol": "trojan", "settings": map[string]any{"servers": []any{map[string]any{"address": s.Address, "port": s.Port, "password": s.Password}}}, "streamSettings": stream}, nil
 	case "shadowsocks":
+		if !supportedShadowsocksCipher(s.Method) {
+			return nil, fmt.Errorf("shadowsocks cipher %q is not supported by the bundled Xray release", s.Method)
+		}
 		return map[string]any{"tag": tag, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": s.Address, "port": s.Port, "method": s.Method, "password": s.Password}}}}, nil
 	case "hysteria2":
 		if s.Insecure {
@@ -315,6 +337,20 @@ func (s ProxyServer) XrayOutbound(tag string) (map[string]any, error) {
 	}
 }
 
+func supportedShadowsocksCipher(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "aes-128-gcm", "aead_aes_128_gcm",
+		"aes-256-gcm", "aead_aes_256_gcm",
+		"chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305",
+		"xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305",
+		"none", "plain",
+		"2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305":
+		return true
+	default:
+		return false
+	}
+}
+
 func ParseSubscription(content string) []ProxyServer {
 	if servers := parseSubscriptionLines(content); len(servers) > 0 {
 		return servers
@@ -327,16 +363,20 @@ func ParseSubscription(content string) []ProxyServer {
 }
 
 func parseSubscriptionLines(content string) []ProxyServer {
-	seen := make(map[string]ProxyServer)
+	seen := make(map[string]bool)
+	result := make([]ProxyServer, 0)
 	for _, line := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
 		server, err := ParseProxyURI(strings.TrimSpace(line))
 		if err == nil {
-			seen[server.ConnectionFingerprint()] = server
+			if _, err = server.XrayOutbound("validate"); err != nil {
+				continue
+			}
+			fingerprint := server.ConnectionFingerprint()
+			if !seen[fingerprint] {
+				seen[fingerprint] = true
+				result = append(result, server)
+			}
 		}
-	}
-	result := make([]ProxyServer, 0, len(seen))
-	for _, server := range seen {
-		result = append(result, server)
 	}
 	return result
 }

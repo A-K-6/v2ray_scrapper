@@ -12,4 +12,23 @@ services:
       - ./config.yaml:/app/config.yaml:ro
     environment:
       HOME: /tmp
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: unless-stopped
+
+volumes:
+  redis-data:

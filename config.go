@@ -12,9 +12,9 @@ import (
 )
 
 type SiteConfig struct {
-	URL      string `yaml:"url"`
-	Filename string `yaml:"filename"`
-	Enabled  *bool  `yaml:"enabled"`
+	URL      string `json:"url" yaml:"url"`
+	Filename string `json:"filename" yaml:"filename"`
+	Enabled  *bool  `json:"enabled,omitempty" yaml:"enabled"`
 }
 
 type fileConfig struct {
@@ -33,6 +33,7 @@ type Config struct {
 	LatencyTestURL       string
 	FetchTimeout         time.Duration
 	TestTimeout          time.Duration
+	TestAttempts         int
 	XrayStartTimeout     time.Duration
 	CacheInterval        time.Duration
 	SiteCacheTTL         time.Duration
@@ -40,11 +41,15 @@ type Config struct {
 	BasePort             int
 	MaxDelayMS           int
 	MaxConcurrentBatches int
+	MaxConcurrentTests   int
 	MaxFailCount         int
 	MaxCandidates        int
 	StatePath            string
 	GeoIPPath            string
 	ConfigPath           string
+	RedisURL             string
+	RedisPrefix          string
+	ManagementToken      string
 	GitPushEnabled       bool
 	GitMainPushEnabled   bool
 	GitSitePushEnabled   bool
@@ -68,21 +73,26 @@ func LoadConfig() (Config, error) {
         ]`)),
 		XrayPath:             env("XRAY_PATH", "/usr/local/bin/xray"),
 		XrayAssetsPath:       env("XRAY_ASSETS_PATH", "/usr/local/bin"),
-		LatencyTestURL:       env("LATENCY_TEST_URL", "http://www.google.com/generate_204"),
+		LatencyTestURL:       env("LATENCY_TEST_URL", "https://www.google.com/generate_204"),
 		FetchTimeout:         envDurationSeconds("FETCH_TIMEOUT", 20),
 		TestTimeout:          envDurationSeconds("TEST_TIMEOUT", 6),
+		TestAttempts:         envInt("TEST_ATTEMPTS", 2),
 		XrayStartTimeout:     envDurationSeconds("XRAY_START_TIMEOUT", 5),
 		CacheInterval:        envDurationSeconds("CACHE_INTERVAL_SECONDS", 600),
 		SiteCacheTTL:         envDurationSeconds("SITE_CACHE_TTL_SECONDS", 86400),
-		BatchSize:            envInt("BATCH_SIZE", 20),
+		BatchSize:            envInt("BATCH_SIZE", 100),
 		BasePort:             envInt("BASE_PORT", 20000),
 		MaxDelayMS:           envInt("MAX_DELAY_MS", 10000),
-		MaxConcurrentBatches: envInt("MAX_CONCURRENT_BATCHES", 3),
+		MaxConcurrentBatches: envInt("MAX_CONCURRENT_BATCHES", 10),
+		MaxConcurrentTests:   envInt("MAX_CONCURRENT_TESTS", 100),
 		MaxFailCount:         envInt("MAX_FAIL_COUNT", 3),
-		MaxCandidates:        envInt("MAX_CANDIDATES", 60),
+		MaxCandidates:        envInt("MAX_CANDIDATES", 10000),
 		StatePath:            env("STATE_FILE_PATH", "data/state.json"),
 		GeoIPPath:            env("GEOIP_DB_PATH", "src/Country.mmdb"),
 		ConfigPath:           env("YAML_CONFIG_PATH", "config.yaml"),
+		RedisURL:             strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisPrefix:          env("REDIS_PREFIX", "v2ray-scrapper"),
+		ManagementToken:      strings.TrimSpace(os.Getenv("MANAGEMENT_TOKEN")),
 		GitPushEnabled:       envBool("GITHUB_PUSH_ENABLED", false),
 		GitMainPushEnabled:   envBool("GITHUB_MAIN_PUSH_ENABLED", true),
 		GitSitePushEnabled:   envBool("GITHUB_SITE_PUSH_ENABLED", true),
@@ -97,10 +107,10 @@ func LoadConfig() (Config, error) {
 	if envBool("LOW_INTERNET_CONS", false) {
 		c.MaxCandidates = min(c.MaxCandidates, envInt("LOW_INTERNET_LIMIT", 50))
 	}
-	if c.BatchSize < 1 || c.MaxConcurrentBatches < 1 || c.MaxFailCount < 1 || c.MaxCandidates < 1 {
+	if c.BatchSize < 1 || c.MaxConcurrentBatches < 1 || c.MaxConcurrentTests < 1 || c.TestAttempts < 1 || c.MaxFailCount < 1 || c.MaxCandidates < 1 {
 		return Config{}, fmt.Errorf("batch and concurrency values must be positive")
 	}
-	if c.BasePort < 1024 || c.BasePort+c.BatchSize*c.MaxConcurrentBatches > 65535 {
+	if c.BasePort < 1024 || c.BasePort+2*c.BatchSize*c.MaxConcurrentBatches > 65535 {
 		return Config{}, fmt.Errorf("BASE_PORT and batch range must fit within 1024-65535")
 	}
 	if c.CacheInterval <= 0 || c.TestTimeout <= 0 || c.XrayStartTimeout <= 0 || c.FetchTimeout <= 0 {

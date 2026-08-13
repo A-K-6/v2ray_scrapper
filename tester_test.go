@@ -38,3 +38,19 @@ func TestCombinedProcessOutputIncludesStdoutAndStderr(t *testing.T) {
 		t.Fatalf("output=%q", got)
 	}
 }
+
+func TestInvalidOutboundIndexParsesXrayError(t *testing.T) {
+	output := "failed to build outbound config with tag out-27 > unknown cipher"
+	if got := invalidOutboundIndex(output); got != 27 {
+		t.Fatalf("index=%d", got)
+	}
+}
+
+func TestGenerate204ProbeRequiresExactStatus(t *testing.T) {
+	if successfulProbe(200, "https://example.com/generate_204", false) {
+		t.Fatal("a captive/intercepted 200 response must not pass a 204 probe")
+	}
+	if !successfulProbe(204, "https://example.com/generate_204", false) {
+		t.Fatal("204 response should pass")
+	}
+}

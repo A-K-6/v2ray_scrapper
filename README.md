@@ -2,14 +2,15 @@
 
 A small, single-process Go service that scrapes proxy subscriptions, tests them through Xray, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
 
-The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned Xray release. It does not require Python, Redis, ARQ, or a separate worker.
+The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned Xray release. Docker Compose also starts Redis for durable source/site management and site-check caches. It does not require Python, ARQ, or a separate worker.
 
 ## What it provides
 
 - VLESS, VMess, Trojan, Shadowsocks, and Hysteria 2 parsing
-- Real HTTP latency tests through Xray-managed SOCKS listeners
+- Two-pass HTTPS validation through Xray-managed SOCKS listeners
 - Bounded batch concurrency
-- In-memory top/all/site-specific caches
+- In-memory top/all caches plus Redis-backed site-specific caches
+- Redis-backed subscription-source and preloaded-site management
 - Atomic JSON persistence across restarts
 - Periodic background refreshes
 - Optional GeoIP remarks and Git publishing
@@ -58,8 +59,26 @@ Environment files are not loaded by the binary itself. Export the variables you 
 | GET | `/subscription/site-specific?url=...` | Nodes that can access the target URL |
 | POST | `/subscription/test` | Tests a raw or Base64 text subscription |
 | POST | `/subscription/test-custom` | Tests supplied URLs/content with custom limits |
+| GET/POST/DELETE | `/subscriptions` | Lists, adds, or removes Redis-backed source URLs |
+| GET/POST/DELETE | `/sites` | Lists, adds/updates, or removes preloaded site checks |
 
 The Base64 endpoints accept an optional comma-separated country filter, for example `?country=US,DE`.
+
+Management routes require `MANAGEMENT_TOKEN` and accept either `Authorization: Bearer <token>` or `X-API-Key: <token>`. They remain disabled when the token is empty. Added sources are used by following refreshes; added sites are automatically checked after a refresh and their result sets are stored in Redis with `SITE_CACHE_TTL_SECONDS`.
+
+The default high-volume profile runs 10 Xray batches of 100 nodes at once (up to 1,000 in-flight probes). A 10,000-node cycle therefore needs 10 waves; failed nodes stop after their first probe, while accepted nodes must pass twice. Real elapsed time still depends on host limits, upstream latency, and the percentage of healthy nodes. Reduce the three concurrency settings on smaller machines.
+
+```bash
+curl -H "Authorization: Bearer $MANAGEMENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"urls":["https://example.com/subscription"]}' \
+  http://localhost:8084/subscriptions
+
+curl -H "Authorization: Bearer $MANAGEMENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://www.openai.com","filename":"openai_valid.txt"}' \
+  http://localhost:8084/sites
+```
 
 ## Configuration
 
@@ -68,11 +87,13 @@ All runtime settings use environment variables. See [.env.sample](.env.sample) f
 Useful defaults:
 
 - `CACHE_INTERVAL_SECONDS=600`
-- `TEST_TIMEOUT=6`
+- `TEST_TIMEOUT=6`, `TEST_ATTEMPTS=2`
 - `MAX_DELAY_MS=10000`
-- `BATCH_SIZE=20`
-- `MAX_CONCURRENT_BATCHES=3`
-- `MAX_CANDIDATES=60`
+- `BATCH_SIZE=100`
+- `MAX_CONCURRENT_BATCHES=10`
+- `MAX_CONCURRENT_TESTS=100`
+- `MAX_CANDIDATES=10000`
+- `REDIS_URL=redis://redis:6379/0`
 - `STATE_FILE_PATH=/data/state.json` in Docker
 
 ## Commands

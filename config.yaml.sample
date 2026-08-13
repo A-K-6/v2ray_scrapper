@@ -25,4 +25,4 @@ sites:
 
   - url: "https://www.openai.com"
     filename: "openai_valid.txt"
-    enabled: false  # Disabled for now
+    enabled: true

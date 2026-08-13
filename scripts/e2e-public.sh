@@ -14,6 +14,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 docker run -d --name "$container" --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -e MAX_CANDIDATES="${E2E_MAX_CANDIDATES:-60}" \
   -p "${port}:8084" -v "${data_dir}:/data" "$image" >/dev/null
 started=$(date +%s)
 
@@ -56,7 +57,7 @@ assert json.loads((root / "health.json").read_text())["status"] == "ok"
 cache = json.loads((root / "cache.json").read_text())
 assert cache["count"] == len(cache["servers"]) > 0
 spec = json.loads((root / "openapi.json").read_text())
-assert spec["openapi"] == "3.1.0" and len(spec["paths"]) == 9
+assert spec["openapi"] == "3.1.0" and len(spec["paths"]) == 11
 assert "SwaggerUIBundle" in (root / "swagger.html").read_text()
 raw = (root / "cache.raw").read_bytes()
 assert base64.b64decode((root / "cache.b64").read_bytes()) == raw
@@ -67,8 +68,14 @@ curl -fsS -X POST -H 'Content-Type: text/plain' --data-binary "@$data_dir/cache.
   "$base/subscription/test" >"$data_dir/custom.json"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["count"] > 0' "$data_dir/custom.json"
 
-site_code=$(curl -sS -o "$data_dir/site.b64" -w '%{http_code}' --get \
-  --data-urlencode 'url=http://www.google.com/generate_204' "$base/subscription/site-specific")
+site_attempt=1
+site_code=429
+while [ "$site_attempt" -le 30 ] && [ "$site_code" = 429 ]; do
+  site_code=$(curl -sS -o "$data_dir/site.b64" -w '%{http_code}' --get \
+    --data-urlencode 'url=https://www.google.com/generate_204' "$base/subscription/site-specific")
+  [ "$site_code" = 429 ] && sleep 1
+  site_attempt=$((site_attempt + 1))
+done
 [ "$site_code" = 200 ] || { echo "FAIL: site-specific endpoint returned $site_code" >&2; exit 1; }
 
 restart_started=$(date +%s)

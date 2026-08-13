@@ -20,7 +20,7 @@ func TestOpenAPIDocumentsEveryPublicOperation(t *testing.T) {
 	if spec.OpenAPI != "3.1.0" {
 		t.Fatalf("OpenAPI version=%q", spec.OpenAPI)
 	}
-	for _, path := range []string{"/health", "/servers/live", "/cache", "/cache/raw", "/cache/base64", "/cache/all/base64", "/subscription/site-specific", "/subscription/test", "/subscription/test-custom"} {
+	for _, path := range []string{"/health", "/servers/live", "/cache", "/cache/raw", "/cache/base64", "/cache/all/base64", "/subscription/site-specific", "/subscription/test", "/subscription/test-custom", "/subscriptions", "/sites"} {
 		if _, ok := spec.Paths[path]; !ok {
 			t.Errorf("missing documented path %s", path)
 		}

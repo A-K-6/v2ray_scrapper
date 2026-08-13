@@ -19,26 +19,45 @@ func NewScraper(timeout time.Duration) *Scraper {
 }
 
 func (s *Scraper) FetchAll(ctx context.Context, urls []string) []ProxyServer {
+	if len(urls) == 0 {
+		return nil
+	}
+	type fetchJob struct {
+		index  int
+		source string
+	}
 	type fetchResult struct {
 		index   int
 		servers []ProxyServer
 	}
 	var wg sync.WaitGroup
+	jobs := make(chan fetchJob)
 	results := make(chan fetchResult, len(urls))
+	for range min(20, len(urls)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				servers, err := s.Fetch(ctx, job.source)
+				if err == nil {
+					results <- fetchResult{index: job.index, servers: servers}
+				}
+			}
+		}()
+	}
+sendJobs:
 	for index, source := range urls {
 		source = strings.TrimSpace(source)
 		if source == "" {
 			continue
 		}
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			servers, err := s.Fetch(ctx, source)
-			if err == nil {
-				results <- fetchResult{index: index, servers: servers}
-			}
-		}(index)
+		select {
+		case jobs <- fetchJob{index: index, source: source}:
+		case <-ctx.Done():
+			break sendJobs
+		}
 	}
+	close(jobs)
 	wg.Wait()
 	close(results)
 	bySource := make([][]ProxyServer, len(urls))
