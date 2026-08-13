@@ -18,12 +18,11 @@ The backend has one binary and one required companion executable: `v2ray-scrappe
 ## Quick start
 
 ```bash
-make init
-docker compose up -d --build
+make up
 curl http://localhost:8084/health
 ```
 
-`make init` asks for the host port, refresh interval, and maximum candidates, then creates `.env`, `config.yaml`, and the local runtime directories. Press Enter at every prompt to accept the production defaults. Existing configuration is never overwritten unless you run `make init ARGS=--force`.
+`make up` runs initialization and performs a Docker rebuild before starting the service, so a stale Python-era image cannot be reused. `make init` asks for the host port, refresh interval, and maximum candidates, then creates `.env`, `config.yaml`, and the local runtime directories. Press Enter at every prompt to accept the production defaults. Existing configuration is never overwritten unless you run `make init ARGS=--force`.
 
 For unattended setup, use `make init ARGS=--non-interactive`. Run `make init ARGS=--help` to see the supported environment overrides.
 
@@ -85,8 +84,9 @@ make test
 make e2e-public
 make lint
 make build
-make docker-up
-make docker-logs
+make up
+make logs
+make down
 ```
 
 The Android client remains under `android-client/` and continues using the same API routes.

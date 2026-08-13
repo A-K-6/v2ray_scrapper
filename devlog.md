@@ -2,6 +2,11 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-08-13] - Stale Docker image startup protection
+- **Task:** Ensure the documented `make up` command exists and cannot reuse the removed Python runtime image.
+- **Changes:** Added concise `up`, `down`, `logs`, `ps`, and `restart` targets, retained the longer Docker aliases, and made `up` initialize and rebuild the image before starting Compose.
+- **Status:** Completed.
+
 ## [2026-08-13] - Interactive project initialization
 - **Task:** Provide one safe command that prepares a new checkout for use.
 - **Changes:** Added `make init` with interactive defaults for host port, refresh interval, and candidate limit. It creates `.env`, `config.yaml`, persistence/build directories, preserves existing configuration by default, supports unattended and forced modes, and includes isolated shell regression tests. Docker Compose now publishes the selected host port and mounts the generated YAML configuration.
