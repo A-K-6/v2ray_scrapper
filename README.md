@@ -1,13 +1,13 @@
 # V2Ray Scrapper
 
-A small, single-process Go service that scrapes proxy subscriptions, tests them through Xray, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
+A small, single-process Go service that scrapes proxy subscriptions, tests them through sing-box, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
 
-The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned Xray release. Docker Compose also starts Redis for durable source/site management and site-check caches. It does not require Python, ARQ, or a separate worker.
+The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned sing-box release. Docker Compose also starts Redis for durable source/site management and site-check caches. It does not require Python, ARQ, or a separate worker.
 
 ## What it provides
 
 - VLESS, VMess, Trojan, Shadowsocks, and Hysteria 2 parsing
-- Two-pass HTTPS validation through Xray-managed SOCKS listeners
+- Two-pass HTTPS validation through sing-box-managed SOCKS listeners
 - Bounded batch concurrency
 - In-memory top/all caches plus Redis-backed site-specific caches
 - Redis-backed subscription-source and preloaded-site management
@@ -33,7 +33,7 @@ Interactive Swagger documentation is available at `http://localhost:8084/swagger
 
 ## Local development
 
-Go 1.23+ and an Xray binary are required.
+Go 1.23+ and a sing-box binary are required.
 
 ```bash
 make init
@@ -66,7 +66,9 @@ The Base64 endpoints accept an optional comma-separated country filter, for exam
 
 Management routes require `MANAGEMENT_TOKEN` and accept either `Authorization: Bearer <token>` or `X-API-Key: <token>`. They remain disabled when the token is empty. Added sources are used by following refreshes; added sites are automatically checked after a refresh and their result sets are stored in Redis with `SITE_CACHE_TTL_SECONDS`.
 
-The default high-volume profile runs 10 Xray batches of 100 nodes at once (up to 1,000 in-flight probes). A 10,000-node cycle therefore needs 10 waves; failed nodes stop after their first probe, while accepted nodes must pass twice. Real elapsed time still depends on host limits, upstream latency, and the percentage of healthy nodes. Reduce the three concurrency settings on smaller machines.
+The default high-volume profile runs 10 sing-box batches of 100 nodes at once (up to 1,000 in-flight probes). A 10,000-node cycle therefore needs 10 waves; failed nodes stop after their first probe, while accepted nodes must pass twice. Real elapsed time still depends on host limits, upstream latency, and the percentage of healthy nodes. Reduce the three concurrency settings on smaller machines.
+
+Each subscription source is retried once. If any configured source still fails, the scheduled refresh is aborted and the previous working/candidate cache is preserved instead of being aged out by an incomplete scrape. Logs report per-source hostnames and parsed candidate counts without exposing URL paths or query credentials.
 
 ```bash
 curl -H "Authorization: Bearer $MANAGEMENT_TOKEN" \
@@ -113,3 +115,5 @@ make down
 The Android client remains under `android-client/` and continues using the same API routes.
 
 `make e2e-public` performs the network-intensive release check against the three default public GitHub feeds. It requires Docker, curl, and Python 3, enforces a first usable cache within 120 seconds, exercises the public API formats and live proxy testing, and verifies persisted-cache availability after restart.
+
+Redis may print a `vm.overcommit_memory` warning because that kernel setting belongs to the Docker host/VM and cannot be changed safely by this unprivileged Compose stack. It does not mean Redis failed to start. On a native Linux host, an administrator can persist `vm.overcommit_memory=1` with the host's sysctl configuration; Docker Desktop users must change it in Docker Desktop's Linux VM if they want to suppress the warning.

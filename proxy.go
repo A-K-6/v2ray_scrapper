@@ -85,9 +85,6 @@ func parseVLESS(raw string) (ProxyServer, error) {
 	}
 	q := u.Query()
 	network := defaultString(q.Get("type"), "tcp")
-	if network == "http" || network == "h2" {
-		return ProxyServer{}, fmt.Errorf("unsupported network %q", network)
-	}
 	return ProxyServer{Protocol: "vless", ID: u.User.Username(), Address: u.Hostname(), Port: port,
 		Encryption: defaultString(q.Get("encryption"), "none"), Security: defaultString(q.Get("security"), "none"),
 		Network: network, Host: q.Get("host"), Path: q.Get("path"), SNI: q.Get("sni"), Flow: q.Get("flow"),
@@ -109,9 +106,6 @@ func parseVMess(raw string) (ProxyServer, error) {
 	}
 	aid, _ := anyInt(data["aid"])
 	network := defaultString(anyString(data["net"]), "tcp")
-	if network == "http" || network == "h2" {
-		return ProxyServer{}, fmt.Errorf("unsupported network %q", network)
-	}
 	return ProxyServer{Protocol: "vmess", VMessID: anyString(data["id"]), Address: anyString(data["add"]), Port: port,
 		Security: defaultString(anyString(data["scy"]), "auto"), Network: network, Host: anyString(data["host"]),
 		Path: anyString(data["path"]), SNI: anyString(data["sni"]), Encryption: defaultString(anyString(data["tls"]), "none"),
@@ -129,9 +123,6 @@ func parseTrojan(raw string) (ProxyServer, error) {
 	}
 	q := u.Query()
 	network := defaultString(q.Get("type"), "tcp")
-	if network == "http" || network == "h2" {
-		return ProxyServer{}, fmt.Errorf("unsupported network %q", network)
-	}
 	return ProxyServer{Protocol: "trojan", Password: u.User.Username(), Address: u.Hostname(), Port: port,
 		Security: defaultString(q.Get("security"), "tls"), Network: network, Host: q.Get("host"), Path: q.Get("path"),
 		SNI: q.Get("sni"), Flow: q.Get("flow"), Remark: fragment(u)}, nil
@@ -246,109 +237,150 @@ func (s ProxyServer) ToURI() string {
 	}
 }
 
-func (s ProxyServer) XrayOutbound(tag string) (map[string]any, error) {
-	stream := map[string]any{"network": defaultString(s.Network, "tcp"), "security": defaultString(s.Security, "none")}
-	if s.Protocol == "vmess" {
-		stream["security"] = defaultString(s.Encryption, "none")
+func (s ProxyServer) SingBoxOutbound(tag string) (map[string]any, error) {
+	base := map[string]any{"type": s.Protocol, "tag": tag, "server": s.Address, "server_port": s.Port}
+	transport, err := s.singBoxTransport()
+	if err != nil {
+		return nil, err
 	}
-	if s.Protocol == "trojan" {
-		stream["security"] = "tls"
-	}
-	if s.Protocol == "hysteria2" {
-		stream = map[string]any{"security": "tls"}
-	}
-	switch stream["network"] {
-	case "ws", "websocket":
-		ws := map[string]any{"path": defaultString(s.Path, "/")}
-		if s.Host != "" {
-			ws["host"] = s.Host
-		}
-		stream["wsSettings"] = ws
-	case "grpc":
-		grpc := map[string]any{"serviceName": strings.TrimPrefix(s.Path, "/")}
-		if s.Host != "" {
-			grpc["authority"] = s.Host
-		}
-		stream["grpcSettings"] = grpc
-	case "xhttp", "splithttp":
-		xhttp := map[string]any{"path": defaultString(s.Path, "/")}
-		if s.Host != "" {
-			xhttp["host"] = s.Host
-		}
-		stream["xhttpSettings"] = xhttp
-	case "httpupgrade":
-		upgrade := map[string]any{"path": defaultString(s.Path, "/")}
-		if s.Host != "" {
-			upgrade["host"] = s.Host
-		}
-		stream["httpupgradeSettings"] = upgrade
-	}
-	security, _ := stream["security"].(string)
-	if security == "tls" || security == "reality" {
-		settings := map[string]any{"serverName": firstNonEmpty(s.SNI, s.Host, s.Address)}
-		if s.Fingerprint != "" {
-			settings["fingerprint"] = s.Fingerprint
-		}
-		if security == "reality" {
-			settings["publicKey"] = s.PublicKey
-			settings["shortId"] = s.ShortID
-			stream["realitySettings"] = settings
-		} else {
-			stream["tlsSettings"] = settings
-		}
+	if transport != nil {
+		base["transport"] = transport
 	}
 	switch s.Protocol {
 	case "vless":
-		settings := map[string]any{"vnext": []any{map[string]any{
-			"address": s.Address, "port": s.Port,
-			"users": []any{map[string]any{"id": s.ID, "encryption": "none", "flow": s.Flow}},
-		}}}
-		return map[string]any{"tag": tag, "protocol": "vless", "settings": settings, "streamSettings": stream}, nil
+		if !validUUID(s.ID) {
+			return nil, fmt.Errorf("invalid VLESS UUID")
+		}
+		if s.Flow != "" && s.Flow != "xtls-rprx-vision" {
+			return nil, fmt.Errorf("unsupported VLESS flow %q", s.Flow)
+		}
+		if s.Security == "reality" && !validRealityParameters(s.PublicKey, s.ShortID) {
+			return nil, fmt.Errorf("invalid Reality public key or short ID")
+		}
+		base["uuid"] = s.ID
+		if s.Flow != "" {
+			base["flow"] = s.Flow
+		}
+		if tls := s.singBoxTLS(defaultString(s.Security, "none")); tls != nil {
+			base["tls"] = tls
+		}
 	case "vmess":
-		settings := map[string]any{"vnext": []any{map[string]any{
-			"address": s.Address, "port": s.Port,
-			"users": []any{map[string]any{"id": s.VMessID, "alterId": s.AlterID, "security": defaultString(s.Security, "auto")}},
-		}}}
-		return map[string]any{"tag": tag, "protocol": "vmess", "settings": settings, "streamSettings": stream}, nil
+		if !validUUID(s.VMessID) {
+			return nil, fmt.Errorf("invalid VMess UUID")
+		}
+		base["uuid"] = s.VMessID
+		base["security"] = defaultString(s.Security, "auto")
+		base["alter_id"] = s.AlterID
+		if tls := s.singBoxTLS(defaultString(s.Encryption, "none")); tls != nil {
+			base["tls"] = tls
+		}
 	case "trojan":
-		return map[string]any{"tag": tag, "protocol": "trojan", "settings": map[string]any{"servers": []any{map[string]any{"address": s.Address, "port": s.Port, "password": s.Password}}}, "streamSettings": stream}, nil
+		base["password"] = s.Password
+		base["tls"] = s.singBoxTLS("tls")
 	case "shadowsocks":
 		if !supportedShadowsocksCipher(s.Method) {
-			return nil, fmt.Errorf("shadowsocks cipher %q is not supported by the bundled Xray release", s.Method)
+			return nil, fmt.Errorf("shadowsocks cipher %q is not supported by the bundled sing-box release", s.Method)
 		}
-		return map[string]any{"tag": tag, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": s.Address, "port": s.Port, "method": s.Method, "password": s.Password}}}}, nil
+		base["method"] = strings.ToLower(strings.TrimSpace(s.Method))
+		base["password"] = s.Password
 	case "hysteria2":
-		if s.Insecure {
-			return nil, fmt.Errorf("hysteria2 node requires disabled TLS verification, which current Xray releases no longer support")
-		}
+		base["password"] = s.Password
+		base["tls"] = map[string]any{"enabled": true, "server_name": firstNonEmpty(s.SNI, s.Address), "insecure": s.Insecure}
 		if s.Obfs != "" && s.Obfs != "none" {
-			return nil, fmt.Errorf("hysteria2 obfuscation %q is not supported by the Xray converter", s.Obfs)
+			if s.Obfs != "salamander" {
+				return nil, fmt.Errorf("hysteria2 obfuscation %q is not supported by sing-box 1.13", s.Obfs)
+			}
+			base["obfs"] = map[string]any{"type": s.Obfs, "password": s.ObfsPassword}
 		}
-		stream = map[string]any{
-			"network":          "hysteria",
-			"security":         "tls",
-			"tlsSettings":      map[string]any{"serverName": firstNonEmpty(s.SNI, s.Address), "alpn": []string{"h3"}},
-			"hysteriaSettings": map[string]any{"version": 2, "auth": s.Password},
-		}
-		settings := map[string]any{"version": 2, "address": s.Address, "port": s.Port}
-		return map[string]any{"tag": tag, "protocol": "hysteria", "settings": settings, "streamSettings": stream}, nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q", s.Protocol)
 	}
+	return base, nil
+}
+
+func (s ProxyServer) singBoxTransport() (map[string]any, error) {
+	switch strings.ToLower(defaultString(s.Network, "tcp")) {
+	case "tcp":
+		return nil, nil
+	case "ws", "websocket":
+		transport := map[string]any{"type": "ws", "path": defaultString(s.Path, "/")}
+		if s.Host != "" {
+			transport["headers"] = map[string]string{"Host": s.Host}
+		}
+		return transport, nil
+	case "grpc":
+		return map[string]any{"type": "grpc", "service_name": strings.TrimPrefix(s.Path, "/")}, nil
+	case "http", "h2":
+		transport := map[string]any{"type": "http", "path": defaultString(s.Path, "/")}
+		if s.Host != "" {
+			transport["host"] = []string{s.Host}
+		}
+		return transport, nil
+	case "httpupgrade":
+		transport := map[string]any{"type": "httpupgrade", "path": defaultString(s.Path, "/")}
+		if s.Host != "" {
+			transport["host"] = s.Host
+		}
+		return transport, nil
+	case "xhttp", "splithttp":
+		return nil, fmt.Errorf("network %q is not supported by sing-box", s.Network)
+	default:
+		return nil, fmt.Errorf("network %q is not supported by sing-box", s.Network)
+	}
+}
+
+func (s ProxyServer) singBoxTLS(security string) map[string]any {
+	if security != "tls" && security != "reality" {
+		return nil
+	}
+	tls := map[string]any{"enabled": true, "server_name": firstNonEmpty(s.SNI, s.Host, s.Address)}
+	if s.Fingerprint != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": s.Fingerprint}
+	}
+	if security == "reality" {
+		if s.Fingerprint == "" {
+			tls["utls"] = map[string]any{"enabled": true, "fingerprint": "chrome"}
+		}
+		tls["reality"] = map[string]any{"enabled": true, "public_key": s.PublicKey, "short_id": s.ShortID}
+	}
+	return tls
 }
 
 func supportedShadowsocksCipher(method string) bool {
 	switch strings.ToLower(strings.TrimSpace(method)) {
-	case "aes-128-gcm", "aead_aes_128_gcm",
-		"aes-256-gcm", "aead_aes_256_gcm",
-		"chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305",
-		"xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305",
-		"none", "plain",
+	case "aes-128-gcm", "aes-192-gcm", "aes-256-gcm",
+		"chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
+		"aes-128-ctr", "aes-192-ctr", "aes-256-ctr",
+		"aes-128-cfb", "aes-192-cfb", "aes-256-cfb", "rc4-md5", "chacha20-ietf", "xchacha20", "none",
 		"2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305":
 		return true
 	default:
 		return false
 	}
+}
+
+func validUUID(value string) bool {
+	compact := strings.ReplaceAll(strings.TrimSpace(value), "-", "")
+	if len(compact) != 32 {
+		return false
+	}
+	_, err := hex.DecodeString(compact)
+	return err == nil
+}
+
+func validRealityParameters(publicKey, shortID string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(publicKey))
+	if err != nil || len(decoded) != 32 {
+		return false
+	}
+	if shortID == "" {
+		return true
+	}
+	if len(shortID) > 16 || len(shortID)%2 != 0 {
+		return false
+	}
+	_, err = hex.DecodeString(shortID)
+	return err == nil
 }
 
 func ParseSubscription(content string) []ProxyServer {
@@ -368,7 +400,7 @@ func parseSubscriptionLines(content string) []ProxyServer {
 	for _, line := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
 		server, err := ParseProxyURI(strings.TrimSpace(line))
 		if err == nil {
-			if _, err = server.XrayOutbound("validate"); err != nil {
+			if _, err = server.SingBoxOutbound("validate"); err != nil {
 				continue
 			}
 			fingerprint := server.ConnectionFingerprint()

@@ -81,22 +81,12 @@ func (t *Tester) Test(ctx context.Context, servers []ProxyServer, target string,
 }
 
 func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target string, siteCheck bool, basePort int) []TestResult {
-	inbounds := make([]any, 0, len(servers))
-	outbounds := make([]any, 0, len(servers))
-	rules := make([]any, 0, len(servers))
-	for i, server := range servers {
-		inTag, outTag := fmt.Sprintf("in-%d", i), fmt.Sprintf("out-%d", i)
-		inbounds = append(inbounds, map[string]any{"tag": inTag, "port": basePort + i, "listen": "127.0.0.1", "protocol": "socks", "settings": map[string]any{"auth": "noauth", "udp": true}})
-		outbound, err := server.XrayOutbound(outTag)
-		if err != nil {
-			return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, i, err)
-		}
-		outbounds = append(outbounds, outbound)
-		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{inTag}, "outboundTag": outTag})
+	configuration, invalid, err := buildSingBoxConfiguration(servers, basePort)
+	if err != nil {
+		return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, invalid, err)
 	}
-	configuration := map[string]any{"log": map[string]any{"loglevel": "error"}, "inbounds": inbounds, "outbounds": outbounds, "routing": map[string]any{"rules": rules}}
 	data, _ := json.Marshal(configuration)
-	file, err := os.CreateTemp("", "v2ray-scrapper-xray-*.json")
+	file, err := os.CreateTemp("", "v2ray-scrapper-sing-box-*.json")
 	if err != nil {
 		return failedResults(servers)
 	}
@@ -109,8 +99,7 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	file.Close()
 	processCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(processCtx, t.config.XrayPath, "-c", name)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+t.config.XrayAssetsPath)
+	cmd := exec.CommandContext(processCtx, t.config.SingBoxPath, "run", "-c", name)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -119,7 +108,7 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	ready, startErr := waitForPort(processCtx, basePort, t.config.XrayStartTimeout, done)
+	ready, startErr := waitForPort(processCtx, basePort, t.config.SingBoxStartTimeout, done)
 	if !ready {
 		cancel()
 		if startErr == nil {
@@ -128,16 +117,16 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 		output := combinedProcessOutput(stdout.String(), stderr.String())
 		if len(servers) > 1 && ctx.Err() == nil {
 			if invalid := invalidOutboundIndex(output); invalid >= 0 && invalid < len(servers) {
-				return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, invalid, fmt.Errorf("xray rejected outbound %d", invalid))
+				return t.testBuildableBatch(ctx, servers, target, siteCheck, basePort, invalid, fmt.Errorf("sing-box rejected outbound %d", invalid))
 			}
-			slog.Warn("xray rejected a batch; isolating invalid configurations", "batch_size", len(servers), "error", startErr, "output", output)
+			slog.Warn("sing-box rejected a batch; isolating invalid configurations", "batch_size", len(servers), "error", startErr, "output", output)
 			middle := len(servers) / 2
 			left := t.testBatch(ctx, servers[:middle], target, siteCheck, basePort)
 			right := t.testBatch(ctx, servers[middle:], target, siteCheck, basePort+middle)
 			return append(left, right...)
 		}
 		if output != "" {
-			slog.Warn("xray failed to start", "error", startErr, "output", output)
+			slog.Warn("sing-box failed to start", "error", startErr, "output", output)
 		}
 		return failedResults(servers)
 	}
@@ -164,8 +153,25 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	return result
 }
 
+func buildSingBoxConfiguration(servers []ProxyServer, basePort int) (map[string]any, int, error) {
+	inbounds := make([]any, 0, len(servers))
+	outbounds := make([]any, 0, len(servers))
+	rules := make([]any, 0, len(servers))
+	for i, server := range servers {
+		inTag, outTag := fmt.Sprintf("in-%d", i), fmt.Sprintf("out-%d", i)
+		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": inTag, "listen": "127.0.0.1", "listen_port": basePort + i})
+		outbound, err := server.SingBoxOutbound(outTag)
+		if err != nil {
+			return nil, i, err
+		}
+		outbounds = append(outbounds, outbound)
+		rules = append(rules, map[string]any{"inbound": []string{inTag}, "action": "route", "outbound": outTag})
+	}
+	return map[string]any{"log": map[string]any{"level": "error", "timestamp": true}, "inbounds": inbounds, "outbounds": outbounds, "route": map[string]any{"rules": rules}}, -1, nil
+}
+
 func (t *Tester) testBuildableBatch(ctx context.Context, servers []ProxyServer, target string, siteCheck bool, basePort, invalid int, cause error) []TestResult {
-	slog.Debug("skipping Xray-incompatible configuration", "protocol", servers[invalid].Protocol, "address", servers[invalid].Address, "error", cause)
+	slog.Debug("skipping sing-box-incompatible configuration", "protocol", servers[invalid].Protocol, "address", servers[invalid].Address, "error", cause)
 	result := failedResults(servers)
 	valid := make([]ProxyServer, 0, len(servers)-1)
 	positions := make([]int, 0, len(servers)-1)
@@ -184,14 +190,18 @@ func (t *Tester) testBuildableBatch(ctx context.Context, servers []ProxyServer, 
 	return result
 }
 
-var outboundIndexPattern = regexp.MustCompile(`(?:tag|outbound) out-(\d+)`)
+var outboundIndexPattern = regexp.MustCompile(`(?:tag|outbound)[ :=]+out-(\d+)|outbounds\[(\d+)\]`)
 
 func invalidOutboundIndex(output string) int {
 	match := outboundIndexPattern.FindStringSubmatch(output)
-	if len(match) != 2 {
+	if len(match) < 2 {
 		return -1
 	}
-	index, err := strconv.Atoi(match[1])
+	value := match[1]
+	if value == "" && len(match) > 2 {
+		value = match[2]
+	}
+	index, err := strconv.Atoi(value)
 	if err != nil {
 		return -1
 	}
@@ -221,7 +231,7 @@ func waitForPort(ctx context.Context, port int, timeout time.Duration, exited <-
 			return false, ctx.Err()
 		case err := <-exited:
 			if err == nil {
-				err = fmt.Errorf("xray exited before opening its SOCKS port")
+				err = fmt.Errorf("sing-box exited before opening its SOCKS port")
 			}
 			return false, err
 		case <-deadline.C:

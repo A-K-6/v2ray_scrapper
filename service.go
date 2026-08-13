@@ -113,7 +113,12 @@ func (s *Service) update(ctx context.Context) error {
 	}
 	s.mu.RUnlock()
 	slog.Info("starting scrape and test cycle", "sources", len(sources))
-	fresh := s.scraper.FetchAll(ctx, sources)
+	fetch := s.scraper.FetchAllSummary(ctx, sources)
+	slog.Info("subscription fetch complete", "successful_sources", fetch.Successful, "failed_sources", fetch.Failed, "fresh_candidates", len(fetch.Servers))
+	if fetch.Failed > 0 || fetch.Attempted != len(sources) {
+		return fmt.Errorf("subscription refresh incomplete: %d succeeded, %d failed, %d configured; preserved previous cache", fetch.Successful, fetch.Failed, len(sources))
+	}
+	fresh := fetch.Servers
 	candidates := mergeServers(fresh, previous)
 	if len(candidates) > s.config.MaxCandidates {
 		candidates = candidates[:s.config.MaxCandidates]

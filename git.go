@@ -43,11 +43,11 @@ func pushFiles(parent context.Context, c Config, updates map[string]string) erro
 		if err = os.MkdirAll(filepath.Dir(c.GitRepoDir), 0755); err != nil {
 			return err
 		}
-		if err = runGit(ctx, c, "", "clone", "--depth", "1", "--branch", c.GitBranch, c.GitRepoURL, c.GitRepoDir); err != nil {
+		if err = runGitNetwork(ctx, c, "", "clone", "--depth", "1", "--branch", c.GitBranch, c.GitRepoURL, c.GitRepoDir); err != nil {
 			return err
 		}
 	}
-	if err := runGit(ctx, c, c.GitRepoDir, "pull", "--rebase", "origin", c.GitBranch); err != nil {
+	if err := runGitNetwork(ctx, c, c.GitRepoDir, "pull", "--rebase", "origin", c.GitBranch); err != nil {
 		return err
 	}
 	for name, content := range updates {
@@ -74,7 +74,7 @@ func pushFiles(parent context.Context, c Config, updates map[string]string) erro
 	if err := runGit(ctx, c, c.GitRepoDir, "commit", "-m", "Auto-update: "+time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return err
 	}
-	return runGit(ctx, c, c.GitRepoDir, "push", "origin", c.GitBranch)
+	return runGitNetwork(ctx, c, c.GitRepoDir, "push", "origin", c.GitBranch)
 }
 
 func safeOutputName(name string) (string, error) {
@@ -100,6 +100,23 @@ func runGit(ctx context.Context, c Config, dir string, args ...string) error {
 		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func runGitNetwork(ctx context.Context, c Config, dir string, args ...string) error {
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err = runGit(ctx, c, dir, args...); err == nil {
+			return nil
+		}
+		if attempt < 3 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+	}
+	return fmt.Errorf("after 3 attempts: %w", err)
 }
 func subscriptionText(servers []ProxyServer) string {
 	lines := make([]string, 0, len(servers))

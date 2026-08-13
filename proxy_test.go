@@ -6,6 +6,11 @@ import (
 	"testing"
 )
 
+const (
+	testUUIDA = "bf000d23-0752-40b4-affe-68f7707a9661"
+	testUUIDB = "bf000d23-0752-40b4-affe-68f7707a9662"
+)
+
 func TestParseSupportedProtocols(t *testing.T) {
 	vmessJSON, _ := json.Marshal(map[string]any{"v": "2", "ps": "node", "add": "1.2.3.4", "port": "443", "id": "uuid", "aid": 0, "scy": "auto", "net": "ws", "host": "example.com", "path": "/ws", "tls": "tls", "sni": "example.com"})
 	tests := []struct{ name, uri, protocol string }{
@@ -36,7 +41,7 @@ func TestParseSupportedProtocols(t *testing.T) {
 }
 
 func TestParseBase64SubscriptionDeduplicates(t *testing.T) {
-	uri := "vless://uuid@1.2.3.4:443?encryption=none&type=tcp"
+	uri := "vless://" + testUUIDA + "@1.2.3.4:443?encryption=none&type=tcp"
 	encoded := base64.StdEncoding.EncodeToString([]byte(uri + "\n" + uri + "#another-name"))
 	servers := ParseSubscription(encoded)
 	if len(servers) != 1 {
@@ -44,10 +49,10 @@ func TestParseBase64SubscriptionDeduplicates(t *testing.T) {
 	}
 }
 
-func TestEveryProtocolBuildsAnXrayOutbound(t *testing.T) {
-	vmessJSON, _ := json.Marshal(map[string]any{"v": "2", "add": "1.2.3.4", "port": "443", "id": "uuid", "net": "tcp"})
+func TestEveryProtocolBuildsASingBoxOutbound(t *testing.T) {
+	vmessJSON, _ := json.Marshal(map[string]any{"v": "2", "add": "1.2.3.4", "port": "443", "id": testUUIDA, "net": "tcp"})
 	for _, uri := range []string{
-		"vless://uuid@1.2.3.4:443?encryption=none&type=tcp",
+		"vless://" + testUUIDA + "@1.2.3.4:443?encryption=none&type=tcp",
 		"vmess://" + base64.StdEncoding.EncodeToString(vmessJSON),
 		"trojan://secret@1.2.3.4:443?type=tcp",
 		"ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:secret")) + "@1.2.3.4:443",
@@ -57,64 +62,72 @@ func TestEveryProtocolBuildsAnXrayOutbound(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		outbound, err := server.XrayOutbound("test")
+		outbound, err := server.SingBoxOutbound("test")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if outbound["tag"] != "test" || outbound["protocol"] == "" {
+		if outbound["tag"] != "test" || outbound["type"] == "" {
 			t.Fatalf("bad outbound: %#v", outbound)
 		}
 	}
 }
 
-func TestXrayOutboundRejectsRemovedHysteriaInsecureMode(t *testing.T) {
-	server, err := ParseProxyURI("hy2://secret@1.2.3.4:443?sni=example.com&insecure=1")
+func TestSingBoxOutboundSupportsHysteriaInsecureAndObfuscation(t *testing.T) {
+	server, err := ParseProxyURI("hy2://secret@1.2.3.4:443?sni=example.com&insecure=1&obfs=salamander&obfs-password=cover")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = server.XrayOutbound("test"); err == nil {
-		t.Fatal("expected insecure Hysteria 2 node to be rejected")
+	outbound, err := server.SingBoxOutbound("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tls := outbound["tls"].(map[string]any)
+	if tls["insecure"] != true || outbound["obfs"].(map[string]any)["type"] != "salamander" {
+		t.Fatalf("outbound=%#v", outbound)
 	}
 }
 
-func TestXrayOutboundUsesNativeHysteriaVersionTwoShape(t *testing.T) {
+func TestSingBoxOutboundUsesNativeHysteriaTwoShape(t *testing.T) {
 	server, err := ParseProxyURI("hy2://secret@1.2.3.4:443?sni=example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	outbound, err := server.XrayOutbound("test")
+	outbound, err := server.SingBoxOutbound("test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outbound["protocol"] != "hysteria" {
-		t.Fatalf("protocol=%v", outbound["protocol"])
-	}
-	stream := outbound["streamSettings"].(map[string]any)
-	if stream["network"] != "hysteria" {
-		t.Fatalf("stream=%#v", stream)
+	if outbound["type"] != "hysteria2" || outbound["password"] != "secret" {
+		t.Fatalf("outbound=%#v", outbound)
 	}
 }
 
-func TestXrayOutboundRejectsLegacyShadowsocksCiphersBeforeStartingXray(t *testing.T) {
+func TestSingBoxOutboundSupportsLegacyShadowsocksCiphers(t *testing.T) {
 	for _, method := range []string{"aes-256-cfb", "rc4-md5"} {
 		server := ProxyServer{Protocol: "shadowsocks", Address: "1.2.3.4", Port: 443, Method: method, Password: "secret"}
-		if _, err := server.XrayOutbound("test"); err == nil {
-			t.Errorf("method %q should be rejected", method)
+		if _, err := server.SingBoxOutbound("test"); err != nil {
+			t.Errorf("method %q: %v", method, err)
 		}
 	}
 	for _, method := range []string{"aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"} {
 		server := ProxyServer{Protocol: "shadowsocks", Address: "1.2.3.4", Port: 443, Method: method, Password: "secret"}
-		if _, err := server.XrayOutbound("test"); err != nil {
+		if _, err := server.SingBoxOutbound("test"); err != nil {
 			t.Errorf("method %q: %v", method, err)
 		}
 	}
 }
 
-func TestSubscriptionDropsXrayIncompatibleNodesBeforeCandidateLimit(t *testing.T) {
+func TestSubscriptionKeepsSingBoxCompatibleLegacyNodes(t *testing.T) {
 	legacy := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-cfb:secret")) + "@1.2.3.4:443"
 	valid := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:secret")) + "@1.2.3.5:443"
 	servers := ParseSubscription(legacy + "\n" + valid)
-	if len(servers) != 1 || servers[0].Address != "1.2.3.5" {
+	if len(servers) != 2 {
+		t.Fatalf("servers=%#v", servers)
+	}
+}
+
+func TestSubscriptionDropsUnsupportedXHTTPNodes(t *testing.T) {
+	servers := ParseSubscription("vless://" + testUUIDA + "@1.2.3.4:443?encryption=none&security=tls&type=xhttp")
+	if len(servers) != 0 {
 		t.Fatalf("servers=%#v", servers)
 	}
 }

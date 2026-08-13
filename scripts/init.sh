@@ -108,7 +108,7 @@ migrate_legacy_env() {
   fi
   set_env_value "$file" FETCH_TIMEOUT 20
   set_env_value "$file" TEST_TIMEOUT 6
-  set_env_value "$file" XRAY_START_TIMEOUT 5
+  set_env_value "$file" SING_BOX_START_TIMEOUT 5
   set_env_value "$file" BATCH_SIZE 100
   set_env_value "$file" MAX_CONCURRENT_BATCHES 10
   set_env_value "$file" MAX_CONCURRENT_TESTS 100

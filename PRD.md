@@ -14,7 +14,7 @@
 ## 1. Introduction
 
 ### 1.1 Purpose
-The **V2Ray Scrapper & Tester** is an automated service designed to aggregate, validate, and distribute high-performance V2Ray server configurations. It solves the problem of unreliable public proxy lists by actively testing servers against real-world endpoints using the Xray core, ensuring that only functional and fast servers are delivered to the end-user.
+The **V2Ray Scrapper & Tester** is an automated service designed to aggregate, validate, and distribute high-performance V2Ray server configurations. It solves the problem of unreliable public proxy lists by actively testing servers against real-world endpoints using sing-box, ensuring that only functional and fast servers are delivered to the end-user.
 
 ### 1.2 Target Audience
 *   **Privacy Advocates:** Users seeking reliable tools to bypass censorship.
@@ -25,7 +25,7 @@ The **V2Ray Scrapper & Tester** is an automated service designed to aggregate, v
 The system handles the entire lifecycle of a proxy configuration:
 1.  **Ingestion:** Fetching subscription links (VLESS, VMess, Trojan, Shadowsocks).
 2.  **Validation:** Parsing and deduplicating server URIs.
-3.  **Testing:** Performing real-latency tests using the `xray` binary (not just ICMP ping).
+3.  **Testing:** Performing real-latency tests using the `sing-box` binary (not just ICMP ping).
 4.  **Enrichment:** Adding Geo-IP data (Country Code and Flag) to server metadata.
 5.  **Distribution:** Exposing results via a REST API (JSON, Base64, Raw) and optionally pushing to a Git repository.
 6.  **Client Sync (Android App):** A lightweight Android updater application that fetches the live configuration, supports local TCP latency checks, and copies or forwards configurations to local V2Ray clients.
@@ -41,7 +41,7 @@ Public V2Ray subscription links often contain hundreds of servers, but a signifi
 A self-hosted containerized application that runs in the background, continuously polishing the server list. It provides a "set and forget" mechanism where the user simply points their V2Ray client to this application's endpoint to get a guaranteed working list.
 
 ### 2.3 Key Value Propositions
-*   **Real-World Accuracy:** Uses the actual Xray core for testing, ensuring protocol compatibility.
+*   **Real-World Accuracy:** Uses the actual sing-box core for testing, ensuring protocol compatibility.
 *   **Geo-Location Intelligence:** Automatically identifies server locations and adds country flags to server names for easy identification in clients.
 *   **Site-Specific Optimization:** Can test if servers work for specific blocked domains (e.g., Google, YouTube).
 *   **Bandwidth Efficiency:** Includes a "Low Internet Consumption" mode to limit testing overhead.
@@ -62,7 +62,7 @@ A self-hosted containerized application that runs in the background, continuousl
 *   **FR-03:** The system MUST filter out duplicate servers based on their raw URI.
 
 ### 3.2 Server Testing & Enrichment Engine
-*   **FR-04:** The system MUST use the `xray` binary to establish actual proxy connections for testing.
+*   **FR-04:** The system MUST use the `sing-box` binary to establish actual proxy connections for testing.
 *   **FR-05:** The system MUST measure the "Real Delay" (time to establish connection + HTTP HEAD request) to a target URL (default: `http://www.google.com/generate_204`).
 *   **FR-06:** The system MUST enforce a configurable timeout (default: 10s) per test.
 *   **FR-07:** The system MUST perform a Geo-IP lookup for each working server to identify its country code and flag.
@@ -110,7 +110,7 @@ The system MUST expose a RESTful API with the following endpoints:
 
 ### 4.2 Reliability
 *   **NFR-03:** The system must gracefully handle network timeouts and upstream API failures (404/500 from subscription providers).
-*   **NFR-04:** The `xray` subprocess must be properly terminated/killed after timeouts to prevent zombie processes.
+*   **NFR-04:** The `sing-box` subprocess must be properly terminated/killed after timeouts to prevent zombie processes.
 *   **NFR-05:** The Geo-IP database should be automatically downloaded if missing on startup.
 
 ### 4.3 Deployment & Configuration
@@ -125,7 +125,7 @@ The system MUST expose a RESTful API with the following endpoints:
 *   **Language:** Go 1.23+
 *   **Web Framework:** Go standard library `net/http`
 *   **Concurrency:** bounded goroutines and channels
-*   **Proxy Core:** Project Xray (Golang binary)
+*   **Proxy Core:** sing-box (Golang binary)
 *   **Data Enrichment:** `geoip2` (MaxMind DB)
 *   **Validation:** Pydantic
 *   **Settings:** Pydantic-Settings
@@ -136,7 +136,7 @@ The system MUST expose a RESTful API with the following endpoints:
 1.  **Startup:** the Go service restores local JSON state, opens the GeoIP database, and starts the background loop.
 2.  **Fetch:** the Go HTTP client pulls data from `SUB_URLS`.
 3.  **Parse:** `ProxyParser` converts raw base64/text into structured dictionaries.
-4.  **Test:** `XrayService` runs batch latency tests via local SOCKS5 ports.
+4.  **Test:** the Go tester runs sing-box batch latency tests via local SOCKS5 ports.
 5.  **Enrich:** `GeoIPService` identifies country codes and flags; `UriGenerator` updates server remarks and regenerates raw URIs.
 6.  **Cache:** Enriched results are sorted by latency, stored in memory, and atomically persisted to a local JSON file.
 7.  **Serve:** API endpoints filter (by country if requested) and return formatted responses.
@@ -148,9 +148,9 @@ The system MUST expose a RESTful API with the following endpoints:
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `SUB_URLS` | (Default Internal URL) | Comma-separated list of subscription sources. |
-| `XRAY_PATH` | `/usr/local/bin/xray` | Path to the Xray executable. |
+| `SING_BOX_PATH` | `/usr/local/bin/sing-box` | Path to the sing-box executable. |
 | `CACHE_INTERVAL_SECONDS` | `600` | How often to refresh the server list. |
-| `MAX_CANDIDATES` | `60` | Maximum candidates tested per bounded refresh cycle. |
+| `MAX_CANDIDATES` | `10000` | Maximum candidates tested per bounded refresh cycle. |
 | `MAX_DELAY_MS` | `10000` | Maximum allowed latency to consider a server "working". |
 | `GEOIP_DB_PATH` | `Country.mmdb` | Path to the Geo-IP database file. |
 | `GITHUB_PUSH_ENABLED` | `false` | Enable/Disable Git integration. |

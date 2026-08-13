@@ -28,13 +28,12 @@ type fileConfig struct {
 type Config struct {
 	ListenAddr           string
 	SubscriptionURLs     []string
-	XrayPath             string
-	XrayAssetsPath       string
+	SingBoxPath          string
 	LatencyTestURL       string
 	FetchTimeout         time.Duration
 	TestTimeout          time.Duration
 	TestAttempts         int
-	XrayStartTimeout     time.Duration
+	SingBoxStartTimeout  time.Duration
 	CacheInterval        time.Duration
 	SiteCacheTTL         time.Duration
 	BatchSize            int
@@ -71,13 +70,12 @@ func LoadConfig() (Config, error) {
             "https://raw.githubusercontent.com/barry-far/V2ray-config/main/Sub1.txt",
             "https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha.txt"
         ]`)),
-		XrayPath:             env("XRAY_PATH", "/usr/local/bin/xray"),
-		XrayAssetsPath:       env("XRAY_ASSETS_PATH", "/usr/local/bin"),
+		SingBoxPath:          env("SING_BOX_PATH", "/usr/local/bin/sing-box"),
 		LatencyTestURL:       env("LATENCY_TEST_URL", "https://www.google.com/generate_204"),
 		FetchTimeout:         envDurationSeconds("FETCH_TIMEOUT", 20),
 		TestTimeout:          envDurationSeconds("TEST_TIMEOUT", 6),
 		TestAttempts:         envInt("TEST_ATTEMPTS", 2),
-		XrayStartTimeout:     envDurationSeconds("XRAY_START_TIMEOUT", 5),
+		SingBoxStartTimeout:  envDurationSeconds("SING_BOX_START_TIMEOUT", 5),
 		CacheInterval:        envDurationSeconds("CACHE_INTERVAL_SECONDS", 600),
 		SiteCacheTTL:         envDurationSeconds("SITE_CACHE_TTL_SECONDS", 86400),
 		BatchSize:            envInt("BATCH_SIZE", 100),
@@ -113,7 +111,7 @@ func LoadConfig() (Config, error) {
 	if c.BasePort < 1024 || c.BasePort+2*c.BatchSize*c.MaxConcurrentBatches > 65535 {
 		return Config{}, fmt.Errorf("BASE_PORT and batch range must fit within 1024-65535")
 	}
-	if c.CacheInterval <= 0 || c.TestTimeout <= 0 || c.XrayStartTimeout <= 0 || c.FetchTimeout <= 0 {
+	if c.CacheInterval <= 0 || c.TestTimeout <= 0 || c.SingBoxStartTimeout <= 0 || c.FetchTimeout <= 0 {
 		return Config{}, fmt.Errorf("timeout and interval values must be positive")
 	}
 	if err := c.loadYAML(); err != nil {
