@@ -2,6 +2,28 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-08-13] - Interactive project initialization
+- **Task:** Provide one safe command that prepares a new checkout for use.
+- **Changes:** Added `make init` with interactive defaults for host port, refresh interval, and candidate limit. It creates `.env`, `config.yaml`, persistence/build directories, preserves existing configuration by default, supports unattended and forced modes, and includes isolated shell regression tests. Docker Compose now publishes the selected host port and mounts the generated YAML configuration.
+- **Status:** Completed.
+
+## [2026-08-13] - Single-process Go backend
+- **Task:** Replace the Python/FastAPI, ARQ, Redis, and Go-helper architecture with one lightweight Go service.
+- **Changes:** Migrated the HTTP API, scheduling, scraping, proxy parsing, Xray testing, GeoIP enrichment, local state, site caching, and optional Git publishing into the root Go module. Replaced the multi-service container stack with one service and added Go unit tests.
+- **Goal:** Keep the existing client/API behavior with a much smaller operational surface and no Python runtime.
+- **Status:** Completed.
+
+## [2026-08-13] - Swagger and API contract tests
+- **Task:** Make the new Go API self-documenting and expand regression coverage.
+- **Changes:** Added an OpenAPI 3.1 document at `/openapi.json`, Swagger UI at `/swagger` and `/docs`, route-level API tests, OpenAPI coverage checks, configuration tests, scraper tests, and per-protocol Xray outbound tests.
+- **Status:** Completed.
+
+## [2026-08-13] - Public-feed end-to-end validation
+- **Task:** Validate cold start and the complete service against Epodonios, barry-far, and ebrasha public subscriptions.
+- **Results:** The default production container fetched all three sources, tested a balanced 60-candidate budget, produced 8 working nodes, and exposed its first usable cache in 41 seconds. JSON, raw, Base64, Swagger/OpenAPI, custom testing, site-specific testing, CORS/method behavior, state persistence, and sub-second warm cache restoration passed.
+- **Changes:** Set a 10-minute refresh default, added balanced source sampling and a 60-candidate cycle cap, isolated malformed public configs when Xray rejects a batch, and added `make e2e-public` as a repeatable two-minute release gate.
+- **Status:** Completed.
+
 ## [2026-06-24] - Unified Go Core Service (Planned)
 - **Task:** Draft design plan to migrate the FastAPI API server, Redis caching layer, and ARQ task worker entirely into a single Go-based service.
 - **Changes:**

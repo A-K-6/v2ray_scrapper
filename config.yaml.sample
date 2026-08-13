@@ -5,7 +5,7 @@ worker:
 # --- Git Configuration ---
 git:
   branch: "main"   # The branch to push to. Multiple workers can safely share this.
-  push_interval: 600
+  push_interval: 0 # Use CACHE_INTERVAL_SECONDS from .env. Set this to override it.
 
 # --- Site Specific Partitioning ---
 # Define which sites THIS worker is responsible for.

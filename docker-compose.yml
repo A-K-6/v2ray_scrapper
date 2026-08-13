@@ -2,57 +2,11 @@ services:
   v2ray-scrapper:
     build: .
     ports:
-      - "8084:8084"
-    volumes:
-      - ./src:/app
-      - ./config.yaml:/app_config.yaml
-    command: uvicorn main:app --host 0.0.0.0 --port 8084
-    
+      - "${HOST_PORT:-8084}:8084"
     env_file:
-      - .env
-    
-    environment:
-      - YAML_CONFIG_PATH=/app_config.yaml
-      - XRAY_PATH=/usr/local/bin/xray
-      - XRAY_ASSETS_PATH=/usr/local/bin
-      - REDIS_HOST=redis
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-    depends_on:
-      - redis
-
-    restart: unless-stopped
-
-  arq-worker:
-    build: .
+      - path: .env
+        required: false
     volumes:
-      - ./src:/app
-      - ./config.yaml:/app_config.yaml
-      - subscription_repo:/app/subscription_repo
-    working_dir: /app
-    command: arq core.tasks.WorkerSettings
-    env_file:
-      - .env
-    environment:
-      - YAML_CONFIG_PATH=/app_config.yaml
-      - XRAY_PATH=/usr/local/bin/xray
-      - XRAY_ASSETS_PATH=/usr/local/bin
-      - REDIS_HOST=redis
-    depends_on:
-      - redis
+      - ./data:/data
+      - ./config.yaml:/app/config.yaml:ro
     restart: unless-stopped
-
-  redis:
-    image: redis:alpine
-    restart: always
-    volumes:
-      - redis_data:/data
-
-volumes:
-  redis_data:
-  subscription_repo:
-
-
-    

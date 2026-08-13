@@ -1,176 +1,94 @@
-# V2Ray Scrapper & Tester
+# V2Ray Scrapper
 
-> **Automated V2Ray Server Aggregator, Tester, and Distributor**
+A small, single-process Go service that scrapes proxy subscriptions, tests them through Xray, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
 
-This tool actively scrapes V2Ray subscription links, validates them, tests their real-world latency using the **Xray core**, and exposes the working servers via a REST API. It ensures you always have a fresh list of high-speed, functional proxies.
+The backend has one binary and one required companion executable: `v2ray-scrapper` and Xray. It does not require Python, Redis, ARQ, or a separate worker.
 
-## 🚀 Features
+## What it provides
 
--   **Multi-Protocol Support:** Parses VLESS, VMess, Trojan, and Shadowsocks.
--   **Real-World Testing:** Uses the actual `xray` binary to establish connections and measure "Real Delay" (not just Ping).
--   **YAML-based Site Partitioning:** Assign specific target sites to different worker instances to avoid Git conflicts and data fragmentation.
--   **Structured Logging:** Professional logging using `loguru` for better observability and debugging.
--   **Automated Health Checks:** continuously tests servers in the background and removes dead ones.
--   **Site-Specific Testing:** Verify if servers can access specific targets (e.g., Google, YouTube).
--   **Smart Caching:** In-memory caching for high performance and reduced load.
--   **Git Integration:** Automatically push working servers to a GitHub/GitLab repository.
--   **Dockerized:** Easy deployment with Docker Compose.
+- VLESS, VMess, Trojan, Shadowsocks, and Hysteria 2 parsing
+- Real HTTP latency tests through Xray-managed SOCKS listeners
+- Bounded batch concurrency
+- In-memory top/all/site-specific caches
+- Atomic JSON persistence across restarts
+- Periodic background refreshes
+- Optional GeoIP remarks and Git publishing
+- The existing REST API used by the Android client
 
----
+## Quick start
 
-## 🛠 Prerequisites
-
--   **Docker** & **Docker Compose** (Recommended)
--   *OR* Python 3.11+ and [Xray Core](https://github.com/XTLS/Xray-core) installed locally.
-
----
-
-## ⚡ Quick Start (Docker)
-
-The easiest way to run the service is using Docker Compose.
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/yourusername/v2ray-scrapper.git
-    cd v2ray-scrapper
-    ```
-
-2.  **Configure Environment:**
-    Copy the sample environment file and edit it.
-    ```bash
-    cp .env.sample .env
-    ```
-    *Add your subscription URLs to `SUB_URLS` in `.env`.*
-
-3.  **Run the Service:**
-    ```bash
-    docker compose up -d
-    ```
-
-The API will be available at `http://localhost:8084`.
-
----
-
-## 🔧 Configuration
-
-### Environment Variables (.env)
-Configuration is managed via environment variables (or the `.env` file).
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `SUB_URLS` | Comma-separated list of subscription URLs to scrape. | *Default Internal List* |
-| `CACHE_INTERVAL_SECONDS` | How often (in seconds) to re-test servers. | `900` (15 min) |
-| `MAX_DELAY_MS` | Max latency to consider a server "working". | `8000` |
-| `TEST_TIMEOUT` | Timeout for each connection test (seconds). | `10` |
-| `LOW_INTERNET_CONS` | Limit number of servers tested to save bandwidth. | `False` |
-| `GITHUB_PUSH_ENABLED` | Enable pushing results to a Git repo. | `False` |
-| `GITHUB_MAIN_PUSH_ENABLED` | Enable pushing the main `subscription.txt` export. | `True` |
-| `GITHUB_SITE_PUSH_ENABLED` | Enable site-specific checks and pushes like `google_tci.txt`. | `True` |
-| `GITHUB_TOKEN` | GitHub Personal Access Token (if enabled). | - |
-| `GITHUB_REPO_URL` | Target Git repository URL. | - |
-
-### Advanced Site Configuration (config.yaml)
-For complex setups with multiple workers, use a `config.yaml` file in the root directory. This allows you to define exactly which sites each worker instance should check and what the output filenames should be.
-
-```yaml
-# config.yaml
-git:
-  branch: "main"  # Multiple workers can safely share a branch
-
-sites:
-  - url: "https://www.google.com"
-    filename: "google_valid.txt"
-    enabled: true
-  
-  - url: "https://www.netflix.com"
-    filename: "netflix_valid.txt"
-    enabled: true
-```
-*Note: Site configurations in `config.yaml` override the `PRECHECK_SITES` environment variable.*
-
----
-
-## 📡 API Endpoints
-
-Once running, you can access the following endpoints:
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/health` | `GET` | Service health check. |
-| `/servers/live` | `GET` | Trigger immediate test and return top servers. |
-| `/cache` | `GET` | Get currently cached top 25 servers (JSON). |
-| `/cache/raw` | `GET` | Get cached servers as a text list (URI format). |
-| `/cache/base64` | `GET` | Get cached servers as Base64 subscription string. |
-| `/cache/all/base64` | `GET` | Get **ALL** working servers as Base64. |
-| `/subscription/site-specific` | `GET` | Get servers that work for a specific URL (param: `url`). |
-| `/subscription/test` | `POST` | Test raw or Base64 subscription text and return working servers. |
-
-**Example Usage:**
 ```bash
-# Get a working subscription link
-curl http://localhost:8084/cache/base64
-
-# Test a local subscription file without changing the main cache
-curl -X POST http://localhost:8084/subscription/test \
-  -H "Content-Type: text/plain" \
-  --data-binary @subscription.txt
+make init
+docker compose up -d --build
+curl http://localhost:8084/health
 ```
 
-## 📱 Android Client App (V2Ray Updater)
+`make init` asks for the host port, refresh interval, and maximum candidates, then creates `.env`, `config.yaml`, and the local runtime directories. Press Enter at every prompt to accept the production defaults. Existing configuration is never overwritten unless you run `make init ARGS=--force`.
 
-A native Android application (`android-client`) built with Kotlin and Jetpack Compose. It allows you to download and sync your scraper's live proxies directly on your mobile device.
+For unattended setup, use `make init ARGS=--non-interactive`. Run `make init ARGS=--help` to see the supported environment overrides.
 
-### Features
-- **Fetch & View List:** Enter your scraper API endpoint (e.g., `http://<your-vps-ip>:8084/cache/base64`) or GitHub raw subscription URL. The app decodes and displays VMess, VLESS, Trojan, and Shadowsocks nodes in a modern, dark-themed UI.
-- **Local Latency Testing:** Run concurrent TCP connection checks (TCP Ping) directly from your phone to test real-time node availability on your mobile network.
-- **Clipboard Sync:** One-click copy for individual proxy configs or the entire subscription payload.
-- **Quick Client Launch:** Deep integration shortcuts to quickly open common Android V2Ray clients like `v2rayNG`, `Nekobox`, and `Sing-Box` to import configs.
+The API listens on port `8084` by default. Persistent state is written to `./data/state.json`.
 
-### 📦 Automated GitHub Releases
-The project features a CI/CD workflow that automatically compiles the Android client and attaches the installer files to GitHub Releases!
+Interactive Swagger documentation is available at `http://localhost:8084/swagger`. The machine-readable OpenAPI document is served at `/openapi.json`.
 
-To build and publish:
-1. Push a version tag to your GitHub repository:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-2. GitHub Actions will trigger, compiling two APKs:
-   - **`app-debug.apk` (Recommended):** Pre-signed with a debug key. Ready to download, install, and run immediately on your Android device.
-   - **`app-release-unsigned.apk`:** Unsigned release build suitable for signing with custom keys.
-3. Download the generated APKs from the **Releases** page of your GitHub repository.
+## Local development
 
----
+Go 1.23+ and an Xray binary are required.
 
-## 📦 Manual Installation (Dev)
+```bash
+make init
+make setup
+make test
+make run
+```
 
-If you prefer running without Docker:
+Environment files are not loaded by the binary itself. Export the variables you need, or use Docker Compose, which reads `.env` automatically.
 
-1.  **Install Xray Core:**
-    ```bash
-    # Example for Linux
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
-    ```
-    *Ensure `xray` is in your PATH or update `XRAY_PATH` in `.env`.*
+## API
 
-2.  **Setup Python Environment:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    ```
+| Method | Endpoint | Result |
+| --- | --- | --- |
+| GET | `/health` | Liveness response |
+| GET | `/swagger` | Interactive Swagger UI |
+| GET | `/openapi.json` | OpenAPI 3.1 specification |
+| GET | `/servers/live` | Starts a refresh and returns the current top 25 |
+| GET | `/cache` | Top 25 as JSON |
+| GET | `/cache/raw` | Top 25 as newline-separated URIs |
+| GET | `/cache/base64` | Top 25 as a Base64 subscription |
+| GET | `/cache/all/base64` | All working nodes as Base64 |
+| GET | `/subscription/site-specific?url=...` | Nodes that can access the target URL |
+| POST | `/subscription/test` | Tests a raw or Base64 text subscription |
+| POST | `/subscription/test-custom` | Tests supplied URLs/content with custom limits |
 
-3.  **Run the Application:**
-    ```bash
-    uvicorn src.main:app --host 0.0.0.0 --port 8084 --reload
-    ```
+The Base64 endpoints accept an optional comma-separated country filter, for example `?country=US,DE`.
 
----
+## Configuration
 
-## 🤝 Contributing
+All runtime settings use environment variables. See [.env.sample](.env.sample) for the complete, documented set. `config.yaml` remains optional and is only used for named site checks and Git output filenames.
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+Useful defaults:
 
-## 📄 License
+- `CACHE_INTERVAL_SECONDS=600`
+- `TEST_TIMEOUT=6`
+- `MAX_DELAY_MS=10000`
+- `BATCH_SIZE=20`
+- `MAX_CONCURRENT_BATCHES=3`
+- `MAX_CANDIDATES=60`
+- `STATE_FILE_PATH=/data/state.json` in Docker
 
-[MIT](LICENSE)
+## Commands
+
+```bash
+make help
+make init
+make test
+make e2e-public
+make lint
+make build
+make docker-up
+make docker-logs
+```
+
+The Android client remains under `android-client/` and continues using the same API routes.
+
+`make e2e-public` performs the network-intensive release check against the three default public GitHub feeds. It requires Docker, curl, and Python 3, enforces a first usable cache within 120 seconds, exercises the public API formats and live proxy testing, and verifies persisted-cache availability after restart.

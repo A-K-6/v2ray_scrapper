@@ -1,0 +1,11 @@
+.git
+.github
+.cache
+.serena
+.env
+bin
+data
+android-client
+ideas
+*.md
+!config.yaml.sample

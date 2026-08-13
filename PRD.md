@@ -4,7 +4,7 @@
 | Metadata | Details |
 | :--- | :--- |
 | **Project Name** | V2Ray Scrapper & Tester |
-| **Version** | 1.1 |
+| **Version** | 2.0 |
 | **Status** | Active / Maintenance |
 | **Last Updated** | 2026-01-02 |
 | **Owner** | Engineering Team |
@@ -122,9 +122,9 @@ The system MUST expose a RESTful API with the following endpoints:
 ## 5. Technical Architecture
 
 ### 5.1 Tech Stack
-*   **Language:** Python 3.11+, Go (for high-performance scraping & testing core)
-*   **Web Framework:** FastAPI (ASGI)
-*   **Concurrency:** `asyncio`, `aiohttp`
+*   **Language:** Go 1.23+
+*   **Web Framework:** Go standard library `net/http`
+*   **Concurrency:** bounded goroutines and channels
 *   **Proxy Core:** Project Xray (Golang binary)
 *   **Data Enrichment:** `geoip2` (MaxMind DB)
 *   **Validation:** Pydantic
@@ -133,12 +133,12 @@ The system MUST expose a RESTful API with the following endpoints:
 *   **CI/CD:** GitHub Actions (workflows for automated Android builds)
 
 ### 5.2 Data Flow
-1.  **Startup:** `SubscriptionService` initializes, downloads/loads Geo-IP database, and starts the background loop.
-2.  **Fetch:** `aiohttp` pulls data from `SUB_URLS`.
+1.  **Startup:** the Go service restores local JSON state, opens the GeoIP database, and starts the background loop.
+2.  **Fetch:** the Go HTTP client pulls data from `SUB_URLS`.
 3.  **Parse:** `ProxyParser` converts raw base64/text into structured dictionaries.
 4.  **Test:** `XrayService` runs batch latency tests via local SOCKS5 ports.
 5.  **Enrich:** `GeoIPService` identifies country codes and flags; `UriGenerator` updates server remarks and regenerates raw URIs.
-6.  **Cache:** Enriched results are sorted by latency and stored in memory.
+6.  **Cache:** Enriched results are sorted by latency, stored in memory, and atomically persisted to a local JSON file.
 7.  **Serve:** API endpoints filter (by country if requested) and return formatted responses.
 
 ---
@@ -149,8 +149,9 @@ The system MUST expose a RESTful API with the following endpoints:
 | :--- | :--- | :--- |
 | `SUB_URLS` | (Default Internal URL) | Comma-separated list of subscription sources. |
 | `XRAY_PATH` | `/usr/local/bin/xray` | Path to the Xray executable. |
-| `CACHE_INTERVAL_SECONDS` | `900` | How often to refresh the server list. |
-| `MAX_DELAY_MS` | `8000` | Maximum allowed latency to consider a server "working". |
+| `CACHE_INTERVAL_SECONDS` | `600` | How often to refresh the server list. |
+| `MAX_CANDIDATES` | `60` | Maximum candidates tested per bounded refresh cycle. |
+| `MAX_DELAY_MS` | `10000` | Maximum allowed latency to consider a server "working". |
 | `GEOIP_DB_PATH` | `Country.mmdb` | Path to the Geo-IP database file. |
 | `GITHUB_PUSH_ENABLED` | `false` | Enable/Disable Git integration. |
 | `GITHUB_REPO_URL` | - | Target repository HTTPS URL. |
@@ -160,6 +161,6 @@ The system MUST expose a RESTful API with the following endpoints:
 ---
 
 ## 7. Roadmap / Future Improvements
-*   **Database Persistence:** Switch from in-memory caching to Redis or SQLite to persist server stats across restarts.
+*   **Database Persistence:** Consider SQLite only if atomic JSON state becomes insufficient for the measured workload.
 *   **Protocol Converter:** Functionality to convert between protocols (e.g., VLESS -> Clash YAML).
 *   **Web Dashboard:** A simple React/HTML frontend to visualize server health and manually trigger updates.

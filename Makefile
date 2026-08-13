@@ -1,118 +1,53 @@
-# --- Variables ---
-PYTHON := python3
-PIP := $(PYTHON) -m pip
-VENV := .venv
-BIN := $(VENV)/bin
-GO := go
-XRAY_URL := https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-XRAY_BIN := /usr/local/bin/xray
-GO_TESTER_DIR := src/go-tester
-GO_TESTER_BIN := $(GO_TESTER_DIR)/xray-tester
+APP := v2ray-scrapper
+GO_CACHE := $(CURDIR)/.cache/go-build
+GO_MOD_CACHE := $(CURDIR)/.cache/go-mod
+GO_ENV := GOCACHE=$(GO_CACHE) GOMODCACHE=$(GO_MOD_CACHE)
 
-# Docker command
-DOCKER_COMPOSE := docker compose
+.PHONY: help init setup run build test test-init e2e-public lint fmt clean docker-build docker-up docker-down docker-logs
 
-# --- Colors ---
-BLUE := \033[36m
-CYAN := \033[36m
-GREEN := \033[32m
-YELLOW := \033[33m
-BOLD := \033[1m
-RESET := \033[0m
+help: ## Show available commands
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-.PHONY: help venv install build-go setup run test clean lint fmt \
-        docker-build docker-up docker-down docker-logs docker-ps docker-restart docker-pull docker-clean
+init: ## Interactively create .env, config.yaml, and runtime directories
+	@sh scripts/init.sh $(ARGS)
 
-help: ## Show this help message
-	@echo -e "\n$(BOLD)V2Ray Scrapper & Tester - Management CLI$(RESET)"
-	@echo -e "Usage: make $(BLUE)<target>$(RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"; printf "$(BOLD)%-20s$(RESET) %s\n", "Target", "Description"} \
-		/^[a-zA-Z0-9_-]+:.*?##/ { printf "  $(CYAN)%-18s$(RESET) %s\n", $$1, $$2 } \
-		/^##@/ { printf "\n$(BOLD)%s$(RESET)\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
-	@echo ""
+setup: ## Download Go modules
+	$(GO_ENV) go mod download
 
-##@ Local Development
+run: ## Run the API locally
+	$(GO_ENV) go run .
 
-venv: ## Create virtual environment and install dependencies
-	@echo -e "$(YELLOW)Creating virtual environment...$(RESET)"
-	$(PYTHON) -m venv $(VENV)
-	$(BIN)/pip install --upgrade pip
-	$(BIN)/pip install -r requirements.txt
-	@echo -e "$(GREEN)Venv created at $(VENV)$(RESET)"
+build: ## Build a small production binary
+	mkdir -p bin
+	$(GO_ENV) go build -trimpath -ldflags="-s -w" -o bin/$(APP) .
 
-install: ## Install dependencies globally (not recommended)
-	$(PIP) install -r requirements.txt
+test: ## Run unit tests with the race detector
+	$(GO_ENV) go test -race ./...
+	@$(MAKE) --no-print-directory test-init
 
-build-go: ## Build the Go-based Xray tester
-	@echo -e "$(YELLOW)Building Go tester...$(RESET)"
-	cd $(GO_TESTER_DIR) && $(GO) build -o xray-tester .
-	@echo -e "$(GREEN)Go tester built at $(GO_TESTER_BIN)$(RESET)"
+test-init: ## Test the project initializer
+	@sh scripts/init_test.sh
 
-download-xray: ## Download and install Xray core (Linux 64-bit)
-	@echo -e "$(YELLOW)Downloading Xray-core...$(RESET)"
-	wget -O /tmp/Xray-linux-64.zip $(XRAY_URL)
-	sudo unzip -o /tmp/Xray-linux-64.zip -d /usr/local/bin/
-	sudo chmod +x /usr/local/bin/xray
-	rm /tmp/Xray-linux-64.zip
-	@echo -e "$(GREEN)Xray-core installed at $(XRAY_BIN)$(RESET)"
+e2e-public: docker-build ## Test real public feeds, APIs, and restart within the cold-start budget
+	sh scripts/e2e-public.sh
 
-setup: venv build-go ## Full setup: venv + build-go
+lint: ## Run Go static analysis
+	$(GO_ENV) go vet ./...
 
-run: ## Run the application locally with hot reload
-	@echo -e "$(GREEN)Starting FastAPI application...$(RESET)"
-	export PYTHONPATH=$$(pwd)/src && $(BIN)/uvicorn main:app --app-dir src --host 0.0.0.0 --port 8084 --reload
+fmt: ## Format Go sources
+	gofmt -w *.go
 
-worker: ## Run the task worker locally
-	@echo -e "$(GREEN)Starting ARQ task worker...$(RESET)"
-	cd src && export PYTHONPATH=$$(pwd) && ../$(BIN)/arq core.tasks.WorkerSettings
-test: ## Run unit tests
-	@echo -e "$(YELLOW)Running tests...$(RESET)"
-	export PYTHONPATH=$$(pwd)/src && $(BIN)/python -m unittest discover tests
+clean: ## Remove local build artifacts
+	rm -rf bin .cache
 
-lint: ## Run linting (requires ruff)
-	@if ! $(BIN)/pip show ruff > /dev/null; then $(BIN)/pip install ruff; fi
-	$(BIN)/ruff check src
+docker-build: ## Build the container
+	docker compose build
 
-fmt: ## Run formatting (requires ruff)
-	@if ! $(BIN)/pip show ruff > /dev/null; then $(BIN)/pip install ruff; fi
-	$(BIN)/ruff format src
+docker-up: init ## Initialize and start the single service
+	docker compose up -d
 
-clean: ## Cleanup temporary files and artifacts
-	@echo -e "$(YELLOW)Cleaning up...$(RESET)"
-	rm -rf $(VENV)
-	rm -f $(GO_TESTER_BIN)
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	rm -f src/Country.mmdb
-	@echo -e "$(GREEN)Cleanup complete.$(RESET)"
+docker-down: ## Stop the service
+	docker compose down
 
-##@ Docker Operations
-
-docker-up: ## Start services in background
-	@echo -e "$(GREEN)Starting services in Docker...$(RESET)"
-	$(DOCKER_COMPOSE) up -d
-
-docker-down: ## Stop and remove containers
-	@echo -e "$(YELLOW)Stopping services...$(RESET)"
-	$(DOCKER_COMPOSE) down
-
-docker-build: ## Build or rebuild services
-	@echo -e "$(YELLOW)Building Docker images...$(RESET)"
-	$(DOCKER_COMPOSE) build
-
-docker-logs: ## View output from containers
-	$(DOCKER_COMPOSE) logs -f
-
-docker-ps: ## List containers
-	$(DOCKER_COMPOSE) ps
-
-docker-restart: ## Restart services
-	@echo -e "$(YELLOW)Restarting services...$(RESET)"
-	$(DOCKER_COMPOSE) restart
-
-docker-pull: ## Pull service images
-	$(DOCKER_COMPOSE) pull
-
-docker-clean: ## Remove unused Docker data
-	@echo -e "$(YELLOW)Cleaning up Docker resources...$(RESET)"
-	$(DOCKER_COMPOSE) down -v --remove-orphans
-	docker image prune -f
+docker-logs: ## Follow service logs
+	docker compose logs -f
