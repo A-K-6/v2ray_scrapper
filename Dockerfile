@@ -7,9 +7,15 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/v2ray-scrapper .
 
 FROM alpine:3.22 AS xray
 ARG TARGETARCH
+ARG XRAY_VERSION=v26.3.27
 RUN apk add --no-cache ca-certificates unzip wget \
-    && case "$TARGETARCH" in amd64) archive=Xray-linux-64.zip ;; arm64) archive=Xray-linux-arm64-v8a.zip ;; *) exit 1 ;; esac \
-    && wget -q -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/${archive}" \
+    && case "$TARGETARCH" in \
+         amd64) archive=Xray-linux-64.zip; checksum=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;; \
+         arm64) archive=Xray-linux-arm64-v8a.zip; checksum=4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;; \
+         *) exit 1 ;; \
+       esac \
+    && wget -q -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${archive}" \
+    && echo "${checksum}  /tmp/xray.zip" | sha256sum -c - \
     && unzip /tmp/xray.zip -d /xray
 
 FROM alpine:3.22

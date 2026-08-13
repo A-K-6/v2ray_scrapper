@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,7 +97,8 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	defer cancel()
 	cmd := exec.CommandContext(processCtx, t.config.XrayPath, "-c", name)
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+t.config.XrayAssetsPath)
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return failedResults(servers)
@@ -109,15 +111,16 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 		if startErr == nil {
 			startErr = <-done
 		}
+		output := combinedProcessOutput(stdout.String(), stderr.String())
 		if len(servers) > 1 && ctx.Err() == nil {
-			slog.Warn("xray rejected a batch; isolating invalid configurations", "batch_size", len(servers), "error", startErr, "stderr", stderr.String())
+			slog.Warn("xray rejected a batch; isolating invalid configurations", "batch_size", len(servers), "error", startErr, "output", output)
 			middle := len(servers) / 2
 			left := t.testBatch(ctx, servers[:middle], target, siteCheck, basePort)
 			right := t.testBatch(ctx, servers[middle:], target, siteCheck, basePort+middle)
 			return append(left, right...)
 		}
-		if stderr.Len() > 0 {
-			slog.Warn("xray failed to start", "error", startErr, "stderr", stderr.String())
+		if output != "" {
+			slog.Warn("xray failed to start", "error", startErr, "output", output)
 		}
 		return failedResults(servers)
 	}
@@ -142,6 +145,17 @@ func (t *Tester) testBatch(ctx context.Context, servers []ProxyServer, target st
 	cancel()
 	<-done
 	return result
+}
+
+func combinedProcessOutput(stdout, stderr string) string {
+	parts := make([]string, 0, 2)
+	if value := strings.TrimSpace(stdout); value != "" {
+		parts = append(parts, value)
+	}
+	if value := strings.TrimSpace(stderr); value != "" {
+		parts = append(parts, value)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func waitForPort(ctx context.Context, port int, timeout time.Duration, exited <-chan error) (bool, error) {

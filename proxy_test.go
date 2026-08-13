@@ -66,3 +66,31 @@ func TestEveryProtocolBuildsAnXrayOutbound(t *testing.T) {
 		}
 	}
 }
+
+func TestXrayOutboundRejectsRemovedHysteriaInsecureMode(t *testing.T) {
+	server, err := ParseProxyURI("hy2://secret@1.2.3.4:443?sni=example.com&insecure=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = server.XrayOutbound("test"); err == nil {
+		t.Fatal("expected insecure Hysteria 2 node to be rejected")
+	}
+}
+
+func TestXrayOutboundUsesNativeHysteriaVersionTwoShape(t *testing.T) {
+	server, err := ParseProxyURI("hy2://secret@1.2.3.4:443?sni=example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound, err := server.XrayOutbound("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outbound["protocol"] != "hysteria" {
+		t.Fatalf("protocol=%v", outbound["protocol"])
+	}
+	stream := outbound["streamSettings"].(map[string]any)
+	if stream["network"] != "hysteria" {
+		t.Fatalf("stream=%#v", stream)
+	}
+}

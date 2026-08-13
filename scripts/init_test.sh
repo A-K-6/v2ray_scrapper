@@ -54,4 +54,27 @@ if INIT_ROOT="$test_root" INIT_NON_INTERACTIVE=true INIT_HOST_PORT=70000 \
   exit 1
 fi
 
+legacy_root="$test_root/legacy"
+mkdir -p "$legacy_root"
+cp "$project_root/.env.sample" "$legacy_root/.env.sample"
+cp "$project_root/config.yaml.sample" "$legacy_root/config.yaml.sample"
+cat >"$legacy_root/.env" <<'EOF'
+UVICORN_HOST=0.0.0.0
+REDIS_HOST=redis
+BATCH_SIZE=500
+TEST_TIMEOUT=10
+CACHE_INTERVAL_SECONDS=900
+SUB_URLS=https://example.test/custom-subscription
+GITHUB_TOKEN=test
+EOF
+INIT_ROOT="$legacy_root" INIT_NON_INTERACTIVE=true sh "$script_dir/init.sh" >/dev/null
+grep -qx 'BATCH_SIZE=20' "$legacy_root/.env"
+grep -qx 'TEST_TIMEOUT=6' "$legacy_root/.env"
+grep -qx 'CACHE_INTERVAL_SECONDS=600' "$legacy_root/.env"
+grep -qx 'MAX_CONCURRENT_BATCHES=3' "$legacy_root/.env"
+grep -qx 'MAX_CANDIDATES=60' "$legacy_root/.env"
+grep -qx 'STATE_FILE_PATH=/data/state.json' "$legacy_root/.env"
+grep -qx 'SUB_URLS=https://example.test/custom-subscription' "$legacy_root/.env"
+grep -qx 'GITHUB_TOKEN=test' "$legacy_root/.env"
+
 echo "init tests passed"

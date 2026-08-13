@@ -1,6 +1,7 @@
 services:
   v2ray-scrapper:
     build: .
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     ports:
       - "${HOST_PORT:-8084}:8084"
     env_file:
@@ -9,4 +10,6 @@ services:
     volumes:
       - ./data:/data
       - ./config.yaml:/app/config.yaml:ro
+    environment:
+      HOME: /tmp
     restart: unless-stopped

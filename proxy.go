@@ -296,12 +296,20 @@ func (s ProxyServer) XrayOutbound(tag string) (map[string]any, error) {
 	case "shadowsocks":
 		return map[string]any{"tag": tag, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": s.Address, "port": s.Port, "method": s.Method, "password": s.Password}}}}, nil
 	case "hysteria2":
-		server := map[string]any{"address": s.Address, "port": s.Port, "password": s.Password}
-		if s.Obfs != "" && s.Obfs != "none" {
-			server["obfs"] = map[string]any{"type": s.Obfs, "password": s.ObfsPassword}
+		if s.Insecure {
+			return nil, fmt.Errorf("hysteria2 node requires disabled TLS verification, which current Xray releases no longer support")
 		}
-		stream["tlsSettings"] = map[string]any{"serverName": firstNonEmpty(s.SNI, s.Address), "allowInsecure": s.Insecure}
-		return map[string]any{"tag": tag, "protocol": "hysteria2", "settings": map[string]any{"servers": []any{server}}, "streamSettings": stream}, nil
+		if s.Obfs != "" && s.Obfs != "none" {
+			return nil, fmt.Errorf("hysteria2 obfuscation %q is not supported by the Xray converter", s.Obfs)
+		}
+		stream = map[string]any{
+			"network":          "hysteria",
+			"security":         "tls",
+			"tlsSettings":      map[string]any{"serverName": firstNonEmpty(s.SNI, s.Address), "alpn": []string{"h3"}},
+			"hysteriaSettings": map[string]any{"version": 2, "auth": s.Password},
+		}
+		settings := map[string]any{"version": 2, "address": s.Address, "port": s.Port}
+		return map[string]any{"tag": tag, "protocol": "hysteria", "settings": settings, "streamSettings": stream}, nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q", s.Protocol)
 	}

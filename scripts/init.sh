@@ -74,6 +74,38 @@ set_env_value() {
   mv "$temporary" "$file"
 }
 
+merge_missing_env() {
+  source_file=$1
+  target_file=$2
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*) key=${line%%=*} ;;
+      *) continue ;;
+    esac
+    if ! grep -q "^${key}=" "$target_file"; then
+      printf '\n%s\n' "$line" >>"$target_file"
+    fi
+  done <"$source_file"
+}
+
+migrate_legacy_env() {
+  file=$1
+  if ! grep -Eq '^(UVICORN_HOST|UVICORN_PORT|REDIS_HOST|PYTHONPATH)=' "$file"; then
+    return
+  fi
+  set_env_value "$file" FETCH_TIMEOUT 20
+  set_env_value "$file" TEST_TIMEOUT 6
+  set_env_value "$file" XRAY_START_TIMEOUT 5
+  set_env_value "$file" BATCH_SIZE 20
+  set_env_value "$file" MAX_CONCURRENT_BATCHES 3
+  set_env_value "$file" MAX_CANDIDATES 60
+  set_env_value "$file" MAX_DELAY_MS 10000
+  set_env_value "$file" CACHE_INTERVAL_SECONDS 600
+  set_env_value "$file" STATE_FILE_PATH /data/state.json
+  echo "Migrated legacy Python-era runtime settings in .env"
+}
+
 env_file="$project_root/.env"
 config_file="$project_root/config.yaml"
 env_sample="$project_root/.env.sample"
@@ -83,7 +115,10 @@ config_sample="$project_root/config.yaml.sample"
 [ -f "$config_sample" ] || { echo "Missing $config_sample" >&2; exit 1; }
 
 if [ -f "$env_file" ] && [ "$force" != true ]; then
-  echo "Keeping existing .env"
+  migrate_legacy_env "$env_file"
+  merge_missing_env "$env_sample" "$env_file"
+  chmod 600 "$env_file"
+  echo "Kept existing .env values and added missing Go defaults"
 else
   prompt "Docker host port" "8084" "${INIT_HOST_PORT:-}"
   host_port=$REPLY

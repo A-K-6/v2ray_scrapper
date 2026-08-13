@@ -13,7 +13,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-docker run -d --name "$container" -p "${port}:8084" -v "${data_dir}:/data" "$image" >/dev/null
+docker run -d --name "$container" --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -p "${port}:8084" -v "${data_dir}:/data" "$image" >/dev/null
 started=$(date +%s)
 
 ready=false

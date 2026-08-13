@@ -31,3 +31,10 @@ func TestWaitForPortReturnsWhenXrayExits(t *testing.T) {
 		t.Fatalf("ready=%v err=%v", ready, err)
 	}
 }
+
+func TestCombinedProcessOutputIncludesStdoutAndStderr(t *testing.T) {
+	got := combinedProcessOutput(" config rejected \n", " details \n")
+	if got != "config rejected\ndetails" {
+		t.Fatalf("output=%q", got)
+	}
+}

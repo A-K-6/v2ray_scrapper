@@ -44,7 +44,7 @@ docker-build: ## Build the container
 	docker compose build
 
 up: init ## Initialize, rebuild, and start the service
-	docker compose up -d --build
+	DOCKER_UID=$$(id -u) DOCKER_GID=$$(id -g) docker compose up -d --build
 
 down: ## Stop the service
 	docker compose down

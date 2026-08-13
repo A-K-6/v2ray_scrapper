@@ -2,6 +2,11 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-08-13] - Linux state permissions and legacy environment migration
+- **Task:** Fix failed atomic state writes on bind-mounted Linux data directories and prevent old Python tuning from producing oversized Xray batches.
+- **Changes:** Compose now runs as the invoking host UID/GID with a writable temporary home. Initialization merges missing Go settings and normalizes bounded runtime settings only when Python/Redis markers identify a legacy environment, while preserving custom subscriptions and Git credentials. Xray startup diagnostics now capture both stdout and stderr because configuration errors are printed to stdout. Added regression coverage for migration and diagnostic behavior.
+- **Status:** Completed.
+
 ## [2026-08-13] - Stale Docker image startup protection
 - **Task:** Ensure the documented `make up` command exists and cannot reuse the removed Python runtime image.
 - **Changes:** Added concise `up`, `down`, `logs`, `ps`, and `restart` targets, retained the longer Docker aliases, and made `up` initialize and rebuild the image before starting Compose.

@@ -2,7 +2,7 @@
 
 A small, single-process Go service that scrapes proxy subscriptions, tests them through Xray, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
 
-The backend has one binary and one required companion executable: `v2ray-scrapper` and Xray. It does not require Python, Redis, ARQ, or a separate worker.
+The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned Xray release. It does not require Python, Redis, ARQ, or a separate worker.
 
 ## What it provides
 
@@ -22,7 +22,7 @@ make up
 curl http://localhost:8084/health
 ```
 
-`make up` runs initialization and performs a Docker rebuild before starting the service, so a stale Python-era image cannot be reused. `make init` asks for the host port, refresh interval, and maximum candidates, then creates `.env`, `config.yaml`, and the local runtime directories. Press Enter at every prompt to accept the production defaults. Existing configuration is never overwritten unless you run `make init ARGS=--force`.
+`make up` runs initialization and performs a Docker rebuild before starting the service, so a stale Python-era image cannot be reused. It also runs the container as the current host user so `./data/state.json` remains writable on Linux bind mounts. `make init` asks for the host port, refresh interval, and maximum candidates, then creates `.env`, `config.yaml`, and the local runtime directories. Press Enter at every prompt to accept the production defaults. Existing custom sources and Git credentials are preserved; Python-era performance settings are migrated to the bounded Go defaults. Use `make init ARGS=--force` only when you intend to regenerate the files completely.
 
 For unattended setup, use `make init ARGS=--non-interactive`. Run `make init ARGS=--help` to see the supported environment overrides.
 
