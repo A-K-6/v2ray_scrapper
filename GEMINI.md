@@ -4,12 +4,18 @@
 
 The backend is a single Go service. Keep it that way unless a demonstrated scaling requirement needs an external queue or shared database.
 
-- `main.go`: CLI entrypoint, dispatches to `RunCLI`
-- `cli.go`: `v2rays` subcommands (serve/refresh/get/test/sources/sites/token/config/doctor/tui)
-- `paths.go`: XDG config/data dirs and standalone default paths
-- `registry.go`: file-backed source/site registry (used when REDIS_URL is empty)
-- `singbox.go`: pinned sing-box auto-provisioning for standalone installs
-- `api.go`: stable REST API boundary
+- `cmd/v2rays/main.go`: CLI entrypoint, dispatches to `internal/cli`
+- `internal/cli`: `v2rays` subcommands (serve/refresh/get/test/sources/sites/token/config/doctor/tui)
+- `internal/service`: refresh/test orchestration, concurrency gate, Git publishing
+- `internal/api`: stable REST API boundary (+ OpenAPI in `docs.go`)
+- `internal/config`: environment, XDG paths, YAML config
+- `internal/proxy`: protocol parsing, URI generation, sing-box outbounds
+- `internal/tester`: sing-box process lifecycle and latency testing
+- `internal/scraper`: bounded subscription fetching
+- `internal/store`: atomic JSON state, file registry, Redis backend
+- `internal/singbox`: pinned sing-box auto-provisioning
+- `internal/geoip`: optional MaxMind enrichment
+- `internal/xdg`: config/data directory resolution
 - `service.go`: refresh/test orchestration and concurrency gate
 - `tester.go`: sing-box process lifecycle and latency testing
 - `proxy.go`: protocol parsing, URI generation, and sing-box outbounds

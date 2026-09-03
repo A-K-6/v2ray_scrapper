@@ -17,11 +17,11 @@ setup: ## Download Go modules
 	$(GO_ENV) go mod download
 
 run: ## Run the API locally
-	$(GO_ENV) go run . serve
+	$(GO_ENV) go run ./cmd/v2rays serve
 
 build: ## Build a small production binary
 	mkdir -p bin
-	$(GO_ENV) go build -trimpath -ldflags="-s -w -X main.buildVersion=$(VERSION)" -o bin/$(APP) .
+	$(GO_ENV) go build -trimpath -ldflags="-s -w -X main.buildVersion=$(VERSION)" -o bin/$(APP) ./cmd/v2rays
 	ln -sf $(APP) bin/$(LEGACY_APP)
 
 test: ## Run unit tests with the race detector
@@ -38,7 +38,7 @@ lint: ## Run Go static analysis
 	$(GO_ENV) go vet ./...
 
 fmt: ## Format Go sources
-	gofmt -w *.go
+	gofmt -w cmd internal
 
 clean: ## Remove local build artifacts
 	rm -rf bin .cache

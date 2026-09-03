@@ -6,7 +6,7 @@ project_name: v2rays
 
 builds:
   - id: v2rays
-    main: .
+    main: ./cmd/v2rays
     binary: v2rays
     env:
       - CGO_ENABLED=0

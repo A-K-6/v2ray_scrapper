@@ -2,8 +2,9 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY *.go ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/v2ray-scrapper .
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/v2ray-scrapper ./cmd/v2rays
 
 FROM alpine:3.22 AS sing-box
 ARG TARGETARCH
@@ -26,7 +27,7 @@ RUN apk add --no-cache ca-certificates gcompat git tzdata \
 WORKDIR /app
 COPY --from=builder /out/v2ray-scrapper /usr/local/bin/v2ray-scrapper
 COPY --from=sing-box /sing-box/sing-box /usr/local/bin/sing-box
-COPY src/Country.mmdb /app/Country.mmdb
+COPY assets/Country.mmdb /app/Country.mmdb
 COPY config.yaml.sample /app/config.yaml
 RUN mkdir -p /data && chown app:app /data
 USER app

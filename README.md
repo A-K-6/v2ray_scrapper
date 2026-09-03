@@ -43,6 +43,28 @@ v2rays doctor                                 # sing-box, geoip, state, token he
 
 Standalone defaults (override with env): config at `~/.config/v2rays/config.yaml`, state/registry/sing-box under `~/.local/share/v2rays/` (Windows: `%AppData%`/`%LocalAppData%`). `SING_BOX_PATH`, `STATE_FILE_PATH`, `GEOIP_DB_PATH`, `YAML_CONFIG_PATH`, `REDIS_URL` still honored. Without `REDIS_URL`, sources/sites persist in a local `registry.json` instead of Redis. Missing sing-box is auto-downloaded (pinned v1.13.12, checksum-verified on linux).
 
+## Project layout
+
+```text
+cmd/v2rays/        entrypoint (v2rays binary)
+internal/
+  api/             REST API + OpenAPI/Swagger
+  cli/             subcommands, TUI menu, config init, doctor
+  config/          env config, XDG paths, YAML sites
+  proxy/           protocol parsing + URI generation
+  tester/          sing-box testing engine
+  scraper/         subscription fetching
+  service/         orchestration + Git publishing
+  store/           JSON state, file registry, Redis backend
+  singbox/         sing-box auto-provisioning
+  geoip/           country enrichment
+  xdg/             config/data directories
+android-client/    Android updater app (same API)
+docs/              GitHub Pages site
+scripts/           init, e2e, helpers
+assets/            GeoIP database
+```
+
 ## Docker (legacy, still supported)
 
 The backend is one binary (`v2rays`, with a `v2ray-scrapper` symlink kept for compatibility) plus a checksum-verified, pinned sing-box release — auto-provisioned for standalone installs, baked into the Docker image otherwise. Docker Compose also starts Redis for durable source/site management and site-check caches; standalone mode uses a local `registry.json` file instead. Neither mode requires Python, ARQ, or a separate worker.

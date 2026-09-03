@@ -5,6 +5,7 @@
 .env
 bin
 data
+docs
 android-client
 ideas
 *.md

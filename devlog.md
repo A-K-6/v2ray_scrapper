@@ -2,6 +2,11 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-09-03] - Repository restructure (cmd + internal layout)
+- **Task:** Reorganize the messy flat repo into a standard Go project layout.
+- **Changes:** Go sources moved from 27 root files into `cmd/v2rays` + `internal/{api,cli,config,geoip,proxy,scraper,service,singbox,store,tester,xdg}` with no behavior change (all tests green incl. `-race`). Removed 81MB dead `venv/`, legacy Python `src/` package, stale `.pyc` tests and `test_empty_dir/`; GeoIP DB moved to `assets/`. Updated Dockerfile, Makefile, GoReleaser main path, `.dockerignore`, README layout section and GEMINI.md. Verified `make build`, `make test`, `doctor`, and a Docker image build.
+- **Status:** Completed.
+
 ## [2026-09-03] - Standalone v2rays CLI (no Docker required)
 - **Task:** Convert the Docker-only service into a distributable standalone CLI while keeping Docker Compose as a supported legacy path.
 - **Changes:** New `v2rays` binary with `serve/refresh/get/test/sources/sites/token/config/doctor/tui/version` subcommands (no-args still serves). File-backed `registry.json` replaces Redis when `REDIS_URL` is empty; pinned sing-box v1.13.12 auto-provisions into the user data dir; XDG config/data dirs with auto-loaded `~/.config/v2rays/.env` (repo-local Docker `.env` is ignored by standalone runs). Added `install.sh`/`install.ps1` one-line installers, `.goreleaser.yml` (linux/darwin/windows), new `make` targets (`install/tui/doctor/serve/refresh`), and CLI regression tests. Updated README, PRD (v2.1, FR-22..FR-26), GEMINI.md, `.env.sample`, and OpenAPI wording (`docs.go` no longer claims Redis-backed management).
