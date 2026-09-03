@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2rays — standalone proxy scraper &amp; tester</title>
+<meta name="description" content="v2rays scrapes proxy subscriptions, tests them through sing-box, and serves ready-to-use subscriptions. One binary, no Docker required.">
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --panel2:#0e141d; --line:#1e2a3a;
+    --txt:#e6edf3; --mut:#8b98a9; --acc:#3fb950; --acc2:#58a6ff; --warn:#d29922;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6}
+  a{color:var(--acc2)}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  header.nav{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,15,20,.92);
+    backdrop-filter:blur(6px);z-index:10}
+  header.nav .wrap{display:flex;align-items:center;gap:18px;padding:12px 20px}
+  .logo{font-family:var(--mono);font-weight:700;font-size:1.15rem;color:var(--txt);text-decoration:none}
+  .logo span{color:var(--acc)}
+  nav.links{margin-left:auto;display:flex;gap:16px;font-size:.92rem}
+  nav.links a{color:var(--mut);text-decoration:none}
+  nav.links a:hover{color:var(--txt)}
+  .hero{padding:72px 0 40px;text-align:center}
+  .hero h1{font-size:2.6rem;margin:.2em 0;font-family:var(--mono)}
+  .hero h1 span{color:var(--acc)}
+  .hero p{color:var(--mut);font-size:1.1rem;max-width:640px;margin:0 auto 28px}
+  .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:28px}
+  .badge{border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:.8rem;color:var(--mut)}
+  .tabs{display:flex;gap:8px;justify-content:center;margin-bottom:0}
+  .tab{background:none;border:1px solid var(--line);border-bottom:none;color:var(--mut);
+    padding:8px 18px;border-radius:8px 8px 0 0;cursor:pointer;font-size:.9rem}
+  .tab.active{background:var(--panel);color:var(--txt);border-color:var(--acc)}
+  .code{background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 10px;
+    padding:16px 18px;font-family:var(--mono);font-size:.88rem;overflow-x:auto;
+    position:relative;text-align:left;max-width:680px;margin:0 auto}
+  .code .c{color:#7ee787}.code .m{color:var(--mut)}
+  .copy{position:absolute;top:8px;right:8px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--mut);border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer}
+  .copy:hover{color:var(--txt);border-color:var(--acc)}
+  section{padding:40px 0;border-top:1px solid var(--line)}
+  h2{font-size:1.5rem;margin-top:0}
+  h2 .n{color:var(--acc);font-family:var(--mono);margin-right:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h3{margin:.2em 0 .4em;font-size:1rem;font-family:var(--mono)}
+  .card h3 code{color:var(--acc)}
+  .card p{margin:.3em 0;color:var(--mut);font-size:.9rem}
+  .flow{display:flex;flex-direction:column;gap:0;margin:18px 0}
+  .step{display:flex;gap:14px;align-items:flex-start}
+  .step .dot{font-family:var(--mono);background:var(--panel);border:1px solid var(--acc);
+    color:var(--acc);border-radius:50%;min-width:34px;height:34px;display:flex;
+    align-items:center;justify-content:center;font-weight:700}
+  .step .bar{width:2px;background:var(--line);flex:0 0 auto;align-self:stretch;margin:4px 0 4px 16px}
+  .stepbody{padding-bottom:22px}
+  .stepbody h3{margin:2px 0 4px;font-size:1.02rem}
+  .stepbody p{margin:0;color:var(--mut);font-size:.93rem}
+  .stepbody code{font-family:var(--mono);font-size:.85em;background:var(--panel2);
+    border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#7ee787}
+  table{width:100%;border-collapse:collapse;font-size:.9rem;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600}
+  td code,.code code{font-family:var(--mono);font-size:.85em}
+  td code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--mut);font-size:.88rem;text-align:center}
+  .cta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+  .btn{border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:10px 22px;
+    text-decoration:none;font-weight:600}
+  .btn:hover{background:rgba(63,185,80,.12)}
+  .btn.ghost{border-color:var(--line);color:var(--txt)}
+  @media (max-width:640px){.hero h1{font-size:1.9rem}nav.links{display:none}}
+</style>
+</head>
+<body>
+
+<header class="nav"><div class="wrap">
+  <a class="logo" href="#">v2rays<span>_</span></a>
+  <nav class="links">
+    <a href="#install">Install</a><a href="#usage">Usage</a><a href="#how">How it works</a>
+    <a href="#config">Config</a><a href="#api">API</a>
+    <a href="https://github.com/A-K-6/v2ray_scrapper">GitHub</a>
+  </nav>
+</div></header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>v2rays<span>_</span></h1>
+    <p>Scrape proxy subscriptions, test every node through a real sing-box core,
+       and serve only the working ones. One static binary — no Docker, no Redis.</p>
+    <div class="badges">
+      <span class="badge">linux · macOS · windows</span>
+      <span class="badge">VLESS · VMess · Trojan · Shadowsocks · Hysteria2</span>
+      <span class="badge">REST API + Swagger</span>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-t="linux">Linux / macOS</button>
+      <button class="tab" data-t="win">Windows</button>
+      <button class="tab" data-t="src">From source</button>
+    </div>
+    <div class="code" id="installBox"><button class="copy" onclick="copyInstall()">copy</button><span id="installCmd"></span></div>
+    <div class="cta">
+      <a class="btn" href="https://github.com/A-K-6/v2ray_scrapper/releases/latest">Download release</a>
+      <a class="btn ghost" href="https://github.com/A-K-6/v2ray_scrapper">Source code</a>
+    </div>
+  </div>
+
+  <section id="start">
+    <h2><span class="n">01</span>Three commands to working proxies</h2>
+    <div class="code"><button class="copy" onclick="copyText(this)">copy</button><span><span class="c">v2rays config init</span>  <span class="m"># first-time setup (config, token, sing-box)</span>
+<span class="c">v2rays doctor</span>       <span class="m"># health check</span>
+<span class="c">v2rays tui</span>          <span class="m"># easiest: interactive menu</span></span></div>
+  </section>
+
+  <section id="usage">
+    <h2><span class="n">02</span>Usage</h2>
+    <div class="grid">
+      <div class="card"><h3><code>serve</code></h3><p>Run the HTTP API (default). Same endpoints as the Docker image, Swagger at <code>/swagger</code>.</p></div>
+      <div class="card"><h3><code>refresh</code></h3><p>One scrape + test cycle, then export. <code>--out sub.txt --format base64 --country US,DE</code>.</p></div>
+      <div class="card"><h3><code>get</code></h3><p>Export the cached results without touching the network. Formats: <code>raw</code>, <code>base64</code>, <code>json</code>.</p></div>
+      <div class="card"><h3><code>test</code></h3><p>Ad-hoc test of a subscription URL or file: <code>test --sub URL --limit 50</code>.</p></div>
+      <div class="card"><h3><code>sources</code> · <code>sites</code></h3><p><code>list | add | rm</code> subscription feeds and site-specific checks. Persisted locally, no Redis needed.</p></div>
+      <div class="card"><h3><code>token</code> · <code>config</code> · <code>doctor</code></h3><p>Manage <code>MANAGEMENT_TOKEN</code>, inspect paths, and verify sing-box, GeoIP, state and token health.</p></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2><span class="n">03</span>How it works</h2>
+    <div class="flow">
+      <div class="step"><div><div class="dot">1</div></div><div class="stepbody">
+        <h3>Scrape</h3><p>Fetches every configured subscription feed (<code>SUB_URLS</code>), decodes raw/Base64 payloads and parses VLESS, VMess, Trojan, Shadowsocks and Hysteria2 URIs into structured nodes. Duplicates are merged.</p></div></div>
+      <div class="step"><div><div class="dot">2</div></div><div class="stepbody">
+        <h3>Test through sing-box</h3><p>Nodes are grouped into batches (default 100). Each batch gets a real sing-box process with one SOCKS inbound per node, then every node performs genuine HTTPS probes — not pings. Failures die on the first probe; survivors must pass twice. Concurrency is bounded so a 10,000-node cycle can't melt small hosts.</p></div></div>
+      <div class="step"><div><div class="dot">3</div></div><div class="stepbody">
+        <h3>Enrich &amp; rank</h3><p>Working nodes get a MaxMind GeoIP lookup (country code + flag) and a remark like <code>🇩🇪 DE 142ms</code>, then are sorted by latency and persisted atomically to <code>state.json</code>.</p></div></div>
+      <div class="step"><div><div class="dot">4</div></div><div class="stepbody">
+        <h3>Serve &amp; publish</h3><p>The REST API serves top-25 / full / country-filtered / site-specific subscriptions as JSON, raw or Base64. Optionally the verified list is pushed to a Git repo, with one file per preloaded site. A background ticker refreshes everything on <code>CACHE_INTERVAL_SECONDS</code> (default 10 min).</p></div></div>
+    </div>
+    <p style="color:var(--mut)">Storage: in-memory cache + atomic JSON state always; source/site management lives in Redis when <code>REDIS_URL</code> is set (Docker), otherwise in a local <code>registry.json</code> file. Same behavior, zero infrastructure.</p>
+  </section>
+
+  <section id="config">
+    <h2><span class="n">04</span>Configuration</h2>
+    <p style="color:var(--mut)">Standalone settings live in <code>~/.config/v2rays/.env</code> (auto-loaded; <code>v2rays config init</code> manages it). Data lives under <code>~/.local/share/v2rays/</code>. All values also work as plain environment variables.</p>
+    <table>
+      <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+      <tr><td><code>SUB_URLS</code></td><td>3 public feeds</td><td>Subscription sources (CSV or JSON array)</td></tr>
+      <tr><td><code>LISTEN_ADDR</code></td><td><code>0.0.0.0:8084</code></td><td>API listen address</td></tr>
+      <tr><td><code>MANAGEMENT_TOKEN</code></td><td><i>empty (mgmt off)</i></td><td>Enables POST/DELETE <code>/subscriptions</code> &amp; <code>/sites</code></td></tr>
+      <tr><td><code>MAX_CANDIDATES</code></td><td><code>10000</code></td><td>Nodes tested per cycle (lower on small hosts)</td></tr>
+      <tr><td><code>CACHE_INTERVAL_SECONDS</code></td><td><code>600</code></td><td>Background refresh period</td></tr>
+      <tr><td><code>SING_BOX_PATH</code></td><td><i>auto</i></td><td>Custom sing-box binary (else pinned release is downloaded)</td></tr>
+      <tr><td><code>REDIS_URL</code></td><td><i>empty (file registry)</i></td><td>Set for Docker-style Redis persistence</td></tr>
+      <tr><td><code>GITHUB_PUSH_ENABLED</code> + <code>GITHUB_REPO_URL</code> + <code>GITHUB_TOKEN</code></td><td><i>off</i></td><td>Publish verified lists to a Git repo</td></tr>
+    </table>
+  </section>
+
+  <section id="api">
+    <h2><span class="n">05</span>API</h2>
+    <table>
+      <tr><th>Endpoint</th><th>Result</th></tr>
+      <tr><td><code>GET /health</code></td><td>Liveness</td></tr>
+      <tr><td><code>GET /swagger</code> · <code>/openapi.json</code></td><td>Interactive docs · machine spec</td></tr>
+      <tr><td><code>GET /cache</code> · <code>/cache/raw</code> · <code>/cache/base64</code> · <code>/cache/all/base64</code></td><td>Top-25 / all nodes (<code>?country=US,DE</code> filter)</td></tr>
+      <tr><td><code>GET /subscription/site-specific?url=…</code></td><td>Nodes proven to reach that URL</td></tr>
+      <tr><td><code>POST /subscription/test</code> · <code>/subscription/test-custom</code></td><td>Ad-hoc testing</td></tr>
+      <tr><td><code>GET/POST/DELETE /subscriptions</code> · <code>/sites</code></td><td>Manage feeds &amp; site checks (token required)</td></tr>
+    </table>
+    <p style="color:var(--mut)">Management routes accept <code>Authorization: Bearer &lt;token&gt;</code> or <code>X-API-Key: &lt;token&gt;</code>. The Android client under <code>android-client/</code> uses these same routes. Prefer Docker? <code>make up</code> still works — legacy path, unchanged behavior.</p>
+  </section>
+</div>
+
+<footer>
+  v2rays · <a href="https://github.com/A-K-6/v2ray_scrapper">A-K-6/v2ray_scrapper</a> ·
+  <a href="https://github.com/A-K-6/v2ray_scrapper/releases/latest">Releases</a> ·
+  <a href="https://github.com/A-K-6/v2ray_scrapper/issues">Issues</a>
+</footer>
+
+<script>
+var cmds = {
+  linux: '<span class="c">curl -fsSL https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.sh | bash</span>\n<span class="c">v2rays config init && v2rays doctor && v2rays tui</span>',
+  win: '<span class="c">irm https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.ps1 | iex</span>\n<span class="c">v2rays config init</span>\n<span class="c">v2rays doctor</span>',
+  src: '<span class="c">git clone https://github.com/A-K-6/v2ray_scrapper.git && cd v2ray_scrapper</span>\n<span class="c">make build && ./bin/v2rays tui</span>'
+};
+var cur = 'linux';
+function render(){ document.getElementById('installCmd').innerHTML = cmds[cur]; }
+document.querySelectorAll('.tab').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+    b.classList.add('active'); cur = b.dataset.t; render();
+  });
+});
+function textOf(id){ return document.getElementById(id).innerText; }
+function copyInstall(){ navigator.clipboard.writeText(textOf('installCmd')); }
+function copyText(btn){ navigator.clipboard.writeText(btn.parentElement.innerText.replace(/^copy/','')); }
+render();
+</script>
+</body>
+</html>
