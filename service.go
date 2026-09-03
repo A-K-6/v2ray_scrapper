@@ -25,6 +25,7 @@ type Service struct {
 	geoIP      *GeoIP
 	store      *StateStore
 	redis      *RedisStore
+	registry   *fileRegistry
 	mu         sync.RWMutex
 	jobs       sync.WaitGroup
 	working    []ProxyServer
@@ -40,20 +41,33 @@ func NewService(config Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Auto-provision sing-box for standalone installs (no-op when a
+	// system binary already exists).
+	config.SingBoxPath = resolveSingBox(config.SingBoxPath)
 	redisStore, err := NewRedisStore(context.Background(), config.RedisURL, config.RedisPrefix)
 	if err != nil {
 		return nil, err
 	}
-	subscriptions, sites, err := redisStore.SeedAndLoad(context.Background(), config.SubscriptionURLs, config.Sites)
-	if err != nil {
-		_ = redisStore.Close()
-		return nil, err
+	var registry *fileRegistry
+	if redisStore != nil {
+		subscriptions, sites, err := redisStore.SeedAndLoad(context.Background(), config.SubscriptionURLs, config.Sites)
+		if err != nil {
+			_ = redisStore.Close()
+			return nil, err
+		}
+		config.SubscriptionURLs = subscriptions
+		config.Sites = sites
+	} else {
+		registry, err = loadFileRegistry(registryPath(), config.SubscriptionURLs, config.Sites)
+		if err != nil {
+			return nil, err
+		}
+		config.SubscriptionURLs = append([]string(nil), registry.Subscriptions...)
+		config.Sites = append([]SiteConfig(nil), registry.Sites...)
 	}
-	config.SubscriptionURLs = subscriptions
-	config.Sites = sites
 	siteTesterConfig := config
 	siteTesterConfig.BasePort += config.BatchSize * config.MaxConcurrentBatches
-	s := &Service{config: config, scraper: NewScraper(config.FetchTimeout), tester: NewTester(config), siteTester: NewTester(siteTesterConfig), geoIP: OpenGeoIP(config.GeoIPPath), store: NewStateStore(config.StatePath), redis: redisStore, candidates: make(map[string]ProxyServer), siteCache: make(map[string]siteCacheEntry), jobToken: make(chan struct{}, 1), siteToken: make(chan struct{}, 1), runContext: context.Background()}
+	s := &Service{config: config, scraper: NewScraper(config.FetchTimeout), tester: NewTester(config), siteTester: NewTester(siteTesterConfig), geoIP: OpenGeoIP(config.GeoIPPath), store: NewStateStore(config.StatePath), redis: redisStore, registry: registry, candidates: make(map[string]ProxyServer), siteCache: make(map[string]siteCacheEntry), jobToken: make(chan struct{}, 1), siteToken: make(chan struct{}, 1), runContext: context.Background()}
 	s.working = append([]ProxyServer(nil), state.Working...)
 	for _, server := range state.Candidates {
 		s.candidates[server.ConnectionFingerprint()] = server
@@ -276,8 +290,12 @@ func (s *Service) Sites() []SiteConfig {
 }
 
 func (s *Service) AddSubscriptions(ctx context.Context, urls []string) error {
-	if err := s.redis.AddSubscriptions(ctx, urls); err != nil {
-		return err
+	if s.redis != nil {
+		if err := s.redis.AddSubscriptions(ctx, urls); err != nil {
+			return err
+		}
+	} else if s.registry != nil {
+		s.registry.addSubscriptions(urls)
 	}
 	s.mu.Lock()
 	s.config.SubscriptionURLs = mergeStrings(s.config.SubscriptionURLs, urls)
@@ -286,8 +304,12 @@ func (s *Service) AddSubscriptions(ctx context.Context, urls []string) error {
 }
 
 func (s *Service) RemoveSubscriptions(ctx context.Context, urls []string) error {
-	if err := s.redis.RemoveSubscriptions(ctx, urls); err != nil {
-		return err
+	if s.redis != nil {
+		if err := s.redis.RemoveSubscriptions(ctx, urls); err != nil {
+			return err
+		}
+	} else if s.registry != nil {
+		s.registry.removeSubscriptions(urls)
 	}
 	removed := make(map[string]bool, len(urls))
 	for _, value := range urls {
@@ -306,8 +328,12 @@ func (s *Service) RemoveSubscriptions(ctx context.Context, urls []string) error 
 }
 
 func (s *Service) PutSite(ctx context.Context, site SiteConfig) error {
-	if err := s.redis.PutSite(ctx, site); err != nil {
-		return err
+	if s.redis != nil {
+		if err := s.redis.PutSite(ctx, site); err != nil {
+			return err
+		}
+	} else if s.registry != nil {
+		s.registry.putSite(site)
 	}
 	s.mu.Lock()
 	replaced := false
@@ -326,8 +352,12 @@ func (s *Service) PutSite(ctx context.Context, site SiteConfig) error {
 }
 
 func (s *Service) RemoveSite(ctx context.Context, target string) error {
-	if err := s.redis.RemoveSite(ctx, target); err != nil {
-		return err
+	if s.redis != nil {
+		if err := s.redis.RemoveSite(ctx, target); err != nil {
+			return err
+		}
+	} else if s.registry != nil {
+		s.registry.removeSite(target)
 	}
 	s.mu.Lock()
 	kept := s.config.Sites[:0]

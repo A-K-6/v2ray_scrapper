@@ -1,16 +1,59 @@
-# V2Ray Scrapper
+# V2Ray Scrapper — now a standalone `v2rays` CLI
 
-A small, single-process Go service that scrapes proxy subscriptions, tests them through sing-box, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
+A small Go service that scrapes proxy subscriptions, tests them through sing-box, enriches working nodes with GeoIP data, and serves ready-to-use subscriptions.
 
-The backend has one binary and one required companion executable: `v2ray-scrapper` and a checksum-verified, pinned sing-box release. Docker Compose also starts Redis for durable source/site management and site-check caches. It does not require Python, ARQ, or a separate worker.
+**New:** no Docker required. Install one binary (`v2rays`), run `v2rays tui`, and it auto-provisions sing-box, keeps a local registry/state, and serves the same REST API.
+
+## Install (one line)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.sh | bash
+# then:
+v2rays config init
+v2rays doctor
+v2rays tui
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.ps1 | iex
+v2rays config init
+v2rays doctor
+v2rays tui
+```
+
+> Set `V2RAYS_REPO=owner/repo` if your release repo differs, and `V2RAYS_VERSION=vX.Y.Z` to pin a version. Releases are built by `.goreleaser.yml` (linux/darwin/windows, amd64/arm64).
+
+## CLI usage
+
+```bash
+v2rays tui                                    # easiest: interactive menu
+v2rays serve                                  # run the HTTP API (same as Docker)
+v2rays refresh --out subscription.txt         # one scrape+test cycle, export base64
+v2rays get --format raw --limit 25            # export cache without network
+v2rays get --all --country US,DE -f base64
+v2rays test --sub https://example.com/sub.txt --limit 50
+v2rays sources list | add <url...> | rm <url...>
+v2rays sites list | add <url> [file] | rm <url>
+v2rays token gen | show                       # MANAGEMENT_TOKEN for management routes
+v2rays config init | show | path
+v2rays doctor                                 # sing-box, geoip, state, token health
+```
+
+Standalone defaults (override with env): config at `~/.config/v2rays/config.yaml`, state/registry/sing-box under `~/.local/share/v2rays/` (Windows: `%AppData%`/`%LocalAppData%`). `SING_BOX_PATH`, `STATE_FILE_PATH`, `GEOIP_DB_PATH`, `YAML_CONFIG_PATH`, `REDIS_URL` still honored. Without `REDIS_URL`, sources/sites persist in a local `registry.json` instead of Redis. Missing sing-box is auto-downloaded (pinned v1.13.12, checksum-verified on linux).
+
+## Docker (legacy, still supported)
+
+The backend is one binary (`v2rays`, with a `v2ray-scrapper` symlink kept for compatibility) plus a checksum-verified, pinned sing-box release — auto-provisioned for standalone installs, baked into the Docker image otherwise. Docker Compose also starts Redis for durable source/site management and site-check caches; standalone mode uses a local `registry.json` file instead. Neither mode requires Python, ARQ, or a separate worker.
 
 ## What it provides
 
 - VLESS, VMess, Trojan, Shadowsocks, and Hysteria 2 parsing
 - Two-pass HTTPS validation through sing-box-managed SOCKS listeners
 - Bounded batch concurrency
-- In-memory top/all caches plus Redis-backed site-specific caches
-- Redis-backed subscription-source and preloaded-site management
+- In-memory top/all caches plus site-specific caches (Redis in Docker, local file standalone)
+- Managed subscription-source and preloaded-site storage (Redis in Docker, `registry.json` standalone)
 - Atomic JSON persistence across restarts
 - Periodic background refreshes
 - Optional GeoIP remarks and Git publishing
@@ -33,7 +76,7 @@ Interactive Swagger documentation is available at `http://localhost:8084/swagger
 
 ## Local development
 
-Go 1.23+ and a sing-box binary are required.
+Go 1.23+ is required for development. A sing-box binary is auto-downloaded on first run (pinned release, checksum-verified on Linux); set `SING_BOX_PATH` to use your own.
 
 ```bash
 make init
@@ -42,7 +85,7 @@ make test
 make run
 ```
 
-Environment files are not loaded by the binary itself. Export the variables you need, or use Docker Compose, which reads `.env` automatically.
+The standalone binary auto-loads `~/.config/v2rays/.env` (see `v2rays config init`); Docker Compose reads the repo-local `.env` automatically. Plain `go run .` / `make run` additionally honor exported variables.
 
 ## API
 
@@ -59,12 +102,12 @@ Environment files are not loaded by the binary itself. Export the variables you 
 | GET | `/subscription/site-specific?url=...` | Nodes that can access the target URL |
 | POST | `/subscription/test` | Tests a raw or Base64 text subscription |
 | POST | `/subscription/test-custom` | Tests supplied URLs/content with custom limits |
-| GET/POST/DELETE | `/subscriptions` | Lists, adds, or removes Redis-backed source URLs |
+| GET/POST/DELETE | `/subscriptions` | Lists, adds, or removes managed source URLs |
 | GET/POST/DELETE | `/sites` | Lists, adds/updates, or removes preloaded site checks |
 
 The Base64 endpoints accept an optional comma-separated country filter, for example `?country=US,DE`.
 
-Management routes require `MANAGEMENT_TOKEN` and accept either `Authorization: Bearer <token>` or `X-API-Key: <token>`. They remain disabled when the token is empty. Added sources are used by following refreshes; added sites are automatically checked after a refresh and their result sets are stored in Redis with `SITE_CACHE_TTL_SECONDS`.
+Management routes require `MANAGEMENT_TOKEN` and accept either `Authorization: Bearer <token>` or `X-API-Key: <token>`. They remain disabled when the token is empty. Added sources are used by following refreshes; added sites are automatically checked after a refresh and their result sets are cached with `SITE_CACHE_TTL_SECONDS` (Redis in Docker, local file standalone).
 
 The default high-volume profile runs 10 sing-box batches of 100 nodes at once (up to 1,000 in-flight probes). A 10,000-node cycle therefore needs 10 waves; failed nodes stop after their first probe, while accepted nodes must pass twice. Real elapsed time still depends on host limits, upstream latency, and the percentage of healthy nodes. Reduce the three concurrency settings on smaller machines.
 

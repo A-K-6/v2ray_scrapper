@@ -4,7 +4,11 @@
 
 The backend is a single Go service. Keep it that way unless a demonstrated scaling requirement needs an external queue or shared database.
 
-- `main.go`: process lifecycle and HTTP server
+- `main.go`: CLI entrypoint, dispatches to `RunCLI`
+- `cli.go`: `v2rays` subcommands (serve/refresh/get/test/sources/sites/token/config/doctor/tui)
+- `paths.go`: XDG config/data dirs and standalone default paths
+- `registry.go`: file-backed source/site registry (used when REDIS_URL is empty)
+- `singbox.go`: pinned sing-box auto-provisioning for standalone installs
 - `api.go`: stable REST API boundary
 - `service.go`: refresh/test orchestration and concurrency gate
 - `tester.go`: sing-box process lifecycle and latency testing

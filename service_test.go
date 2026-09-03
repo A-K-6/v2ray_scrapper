@@ -8,6 +8,8 @@ import (
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
+	t.Setenv("V2RAYS_SKIP_SINGBOX_DOWNLOAD", "1")
+	t.Setenv("REDIS_URL", "")
 	service, err := NewService(Config{StatePath: filepath.Join(t.TempDir(), "state.json"), GeoIPPath: "missing.mmdb", MaxFailCount: 3, MaxDelayMS: 1000})
 	if err != nil {
 		t.Fatal(err)

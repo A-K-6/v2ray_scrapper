@@ -4,6 +4,7 @@ data/
 bin/
 .cache/
 .serena/
+src/subscription_repo/
 
 # Editors and operating systems
 .DS_Store

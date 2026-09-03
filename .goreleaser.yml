@@ -1,0 +1,43 @@
+# GoReleaser: cross-platform standalone releases for the `v2rays` CLI.
+# Run: goreleaser release --clean  (or --snapshot for local archives)
+version: 2
+
+project_name: v2rays
+
+builds:
+  - id: v2rays
+    main: .
+    binary: v2rays
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.buildVersion={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: v2rays
+    name_template: "v2rays-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - config.yaml.sample
+      - install.sh
+      - install.ps1
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: A-K-6
+    name: v2ray_scrapper
+  mode: replace
+  name_template: "{{.Tag}}"

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
+	loadDotEnvFiles()
 	c := Config{
 		ListenAddr: env("LISTEN_ADDR", "0.0.0.0:8084"),
 		SubscriptionURLs: envList("SUB_URLS", env("SUB_URL", `[
@@ -70,7 +72,7 @@ func LoadConfig() (Config, error) {
             "https://raw.githubusercontent.com/barry-far/V2ray-config/main/Sub1.txt",
             "https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha.txt"
         ]`)),
-		SingBoxPath:          env("SING_BOX_PATH", "/usr/local/bin/sing-box"),
+		SingBoxPath:          env("SING_BOX_PATH", defaultSingBoxPath()),
 		LatencyTestURL:       env("LATENCY_TEST_URL", "https://www.google.com/generate_204"),
 		FetchTimeout:         envDurationSeconds("FETCH_TIMEOUT", 20),
 		TestTimeout:          envDurationSeconds("TEST_TIMEOUT", 6),
@@ -85,9 +87,9 @@ func LoadConfig() (Config, error) {
 		MaxConcurrentTests:   envInt("MAX_CONCURRENT_TESTS", 100),
 		MaxFailCount:         envInt("MAX_FAIL_COUNT", 3),
 		MaxCandidates:        envInt("MAX_CANDIDATES", 10000),
-		StatePath:            env("STATE_FILE_PATH", "data/state.json"),
-		GeoIPPath:            env("GEOIP_DB_PATH", "src/Country.mmdb"),
-		ConfigPath:           env("YAML_CONFIG_PATH", "config.yaml"),
+		StatePath:            env("STATE_FILE_PATH", defaultStatePath()),
+		GeoIPPath:            env("GEOIP_DB_PATH", defaultGeoIPPath()),
+		ConfigPath:           env("YAML_CONFIG_PATH", defaultConfigPath()),
 		RedisURL:             strings.TrimSpace(os.Getenv("REDIS_URL")),
 		RedisPrefix:          env("REDIS_PREFIX", "v2ray-scrapper"),
 		ManagementToken:      strings.TrimSpace(os.Getenv("MANAGEMENT_TOKEN")),
@@ -220,4 +222,45 @@ func cleanStrings(values []string) []string {
 		}
 	}
 	return result
+}
+
+// loadDotEnvFiles makes the standalone CLI predictable: it auto-loads the
+// XDG config file (~/.config/v2rays/.env). The repo-local .env is
+// Docker-oriented (STATE_FILE_PATH=/data/..., REDIS_URL=redis://redis...)
+// and is injected by docker compose itself, so it is deliberately NOT
+// loaded here. Existing process env always wins; keys already present
+// (even empty, e.g. in tests) are never overwritten.
+func loadDotEnvFiles() {
+	dir := configDir()
+	if dir == "" {
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		idx := strings.Index(line, "=")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if key == "" {
+			continue
+		}
+		if _, present := os.LookupEnv(key); !present {
+			_ = os.Setenv(key, value)
+		}
+	}
 }

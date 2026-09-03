@@ -4,9 +4,9 @@
 | Metadata | Details |
 | :--- | :--- |
 | **Project Name** | V2Ray Scrapper & Tester |
-| **Version** | 2.0 |
+| **Version** | 2.1 |
 | **Status** | Active / Maintenance |
-| **Last Updated** | 2026-01-02 |
+| **Last Updated** | 2026-09-03 |
 | **Owner** | Engineering Team |
 
 ---
@@ -164,3 +164,16 @@ The system MUST expose a RESTful API with the following endpoints:
 *   **Database Persistence:** Consider SQLite only if atomic JSON state becomes insufficient for the measured workload.
 *   **Protocol Converter:** Functionality to convert between protocols (e.g., VLESS -> Clash YAML).
 *   **Web Dashboard:** A simple React/HTML frontend to visualize server health and manually trigger updates.
+
+---
+
+## 8. Standalone CLI (v2.1)
+
+The service ships as a single `v2rays` binary with no Docker or Redis requirement.
+
+*   **FR-22:** The binary MUST expose subcommands: `serve`, `refresh`, `get`, `test`, `sources`, `sites`, `token`, `config`, `doctor`, `tui`, `version`. No-args MUST preserve the legacy serve behaviour.
+*   **FR-23:** Without `REDIS_URL`, source/site management MUST persist in a local file registry (`registry.json`) with the same semantics as the Redis backend.
+*   **FR-24:** On first use the binary MUST auto-provision a pinned, checksum-verified sing-box release into the user data dir when no usable binary exists (`SING_BOX_PATH` still overrides).
+*   **FR-25:** Standalone configuration MUST live in `~/.config/v2rays/` (config file + auto-loaded `.env`) with state under `~/.local/share/v2rays/` (OS equivalents on macOS/Windows). The repo-local Docker `.env` MUST NOT affect standalone runs.
+*   **FR-26:** Releases MUST be published via GoReleaser for linux/darwin/windows (amd64/arm64, except windows/arm64) with `install.sh` / `install.ps1` one-line installers.
+*   **NFR-06 update:** containerized deployment remains supported (Docker Compose + Redis) but is no longer required.

@@ -2,6 +2,11 @@
 
 This file tracks major changes, workflow executions, and project milestones.
 
+## [2026-09-03] - Standalone v2rays CLI (no Docker required)
+- **Task:** Convert the Docker-only service into a distributable standalone CLI while keeping Docker Compose as a supported legacy path.
+- **Changes:** New `v2rays` binary with `serve/refresh/get/test/sources/sites/token/config/doctor/tui/version` subcommands (no-args still serves). File-backed `registry.json` replaces Redis when `REDIS_URL` is empty; pinned sing-box v1.13.12 auto-provisions into the user data dir; XDG config/data dirs with auto-loaded `~/.config/v2rays/.env` (repo-local Docker `.env` is ignored by standalone runs). Added `install.sh`/`install.ps1` one-line installers, `.goreleaser.yml` (linux/darwin/windows), new `make` targets (`install/tui/doctor/serve/refresh`), and CLI regression tests. Updated README, PRD (v2.1, FR-22..FR-26), GEMINI.md, `.env.sample`, and OpenAPI wording (`docs.go` no longer claims Redis-backed management).
+- **Status:** Completed.
+
 ## [2026-08-13] - Linux state permissions and legacy environment migration
 - **Task:** Fix failed atomic state writes on bind-mounted Linux data directories and prevent old Python tuning from producing oversized Xray batches.
 - **Changes:** Compose now runs as the invoking host UID/GID with a writable temporary home. Initialization merges missing Go settings and normalizes bounded runtime settings only when Python/Redis markers identify a legacy environment, while preserving custom subscriptions and Git credentials. Xray startup diagnostics now capture both stdout and stderr because configuration errors are printed to stdout. Added regression coverage for migration and diagnostic behavior.
