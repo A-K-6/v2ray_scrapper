@@ -9,6 +9,9 @@ REPO="${V2RAYS_REPO:-A-K-6/v2ray_scrapper}"
 VERSION="${V2RAYS_VERSION:-latest}"
 INSTALL_DIR="${V2RAYS_INSTALL_DIR:-}"
 BIN_NAME="v2rays"
+# Network timeouts: fail fast on missing assets instead of hanging.
+CURL_API_FLAGS="--connect-timeout 15 --max-time 60"
+CURL_DL_FLAGS="--connect-timeout 20 --max-time 600 --retry 2"
 
 log() { printf '%s\n' "$*" >&2; }
 
@@ -46,7 +49,7 @@ resolve_version() {
   fi
   # Try GitHub API; fall back to a static hint on failure.
   if command -v curl >/dev/null 2>&1; then
-    tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | cut -d'"' -f4 || true)
+    tag=$(curl -fsSL $CURL_API_FLAGS "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | cut -d'"' -f4 || true)
     if [ -n "${tag:-}" ]; then
       printf '%s' "$tag"
       return
@@ -65,7 +68,8 @@ trap 'rm -rf "$tmp"' EXIT
 
 log "downloading $URL"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$URL" -o "$tmp/$ARCHIVE"
+  # shellcheck disable=SC2086
+  curl -fsSL $CURL_DL_FLAGS "$URL" -o "$tmp/$ARCHIVE"
 elif command -v wget >/dev/null 2>&1; then
   wget -qO "$tmp/$ARCHIVE" "$URL"
 else

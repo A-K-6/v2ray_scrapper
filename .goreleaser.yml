@@ -39,5 +39,6 @@ release:
   github:
     owner: A-K-6
     name: v2ray_scrapper
-  mode: replace
+  # Default append mode (no `mode:` key): keep assets uploaded by other
+  # workflows (e.g. the Android APK job that also runs on v* tags).
   name_template: "{{.Tag}}"
