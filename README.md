@@ -4,14 +4,22 @@ A small Go service that scrapes proxy subscriptions, tests them through sing-box
 
 **New:** no Docker required. Install one binary (`v2rays`), run `v2rays tui`, and it auto-provisions sing-box, keeps a local registry/state, and serves the same REST API.
 
-## Install (one line)
+## Quick start (60 seconds)
 
 ```bash
+# 1. Install
 curl -fsSL https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.sh | bash
-# then:
+
+# 2. First-time setup (config, token, sing-box — all automatic)
 v2rays config init
-v2rays doctor
-v2rays tui
+v2rays doctor          # everything should be ✓
+
+# 3. Easiest way to use it
+v2rays tui             # interactive menu: refresh, browse nodes, manage feeds
+
+# ...or go straight to working proxies:
+v2rays refresh --out subscription.txt   # one scrape+test cycle, Base64 output
+v2rays serve                            # HTTP API on :8084 (Swagger at /swagger)
 ```
 
 Windows (PowerShell):
@@ -19,11 +27,12 @@ Windows (PowerShell):
 ```powershell
 irm https://raw.githubusercontent.com/A-K-6/v2ray_scrapper/main/install.ps1 | iex
 v2rays config init
-v2rays doctor
 v2rays tui
 ```
 
-> Set `V2RAYS_REPO=owner/repo` if your release repo differs, and `V2RAYS_VERSION=vX.Y.Z` to pin a version. Releases are built by `.goreleaser.yml` (linux/darwin/windows, amd64/arm64).
+> Pin a version with `V2RAYS_VERSION=vX.Y.Z`. Releases are built by `.goreleaser.yml` (linux/darwin/windows, amd64/arm64).
+
+## Install details
 
 ## CLI usage
 

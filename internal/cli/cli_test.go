@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,22 @@ func TestExportServersFiltersAndLimits(t *testing.T) {
 	data, _ := os.ReadFile(out)
 	if string(data) != "vless://a\n" {
 		t.Fatalf("content=%q", data)
+	}
+}
+
+func TestServeFailsFastOnOccupiedPort(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("V2RAYS_CONFIG_DIR", dir)
+	t.Setenv("V2RAYS_DATA_DIR", dir)
+	t.Setenv("V2RAYS_REGISTRY_PATH", filepath.Join(dir, "registry.json"))
+	t.Setenv("V2RAYS_SKIP_SINGBOX_DOWNLOAD", "1")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback listener available")
+	}
+	defer ln.Close()
+	if code := runServe([]string{"--addr", ln.Addr().String()}); code != 1 {
+		t.Fatalf("code=%d, want 1", code)
 	}
 }
 

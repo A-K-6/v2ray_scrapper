@@ -115,6 +115,11 @@ func (s *Service) TriggerUpdate(ctx context.Context) bool {
 		err := s.update(ctx)
 		s.end()
 		if err != nil {
+			if ctx.Err() != nil {
+				// Interrupted by shutdown, not a real failure.
+				slog.Debug("update interrupted", "error", err)
+				return
+			}
 			slog.Error("update failed", "error", err)
 			return
 		}

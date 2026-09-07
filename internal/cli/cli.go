@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -148,11 +149,19 @@ func runServe(args []string) int {
 	defer service.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Bind before starting background work so "address already in use"
+	// fails fast instead of running a doomed refresh cycle first.
+	listener, err := net.Listen("tcp", config.ListenAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "listen %s: %v\n", config.ListenAddr, err)
+		fmt.Fprintln(os.Stderr, "hint: the systemd service may already own it — check `systemctl --user status v2rays`, or serve elsewhere with `v2rays serve --addr 127.0.0.1:8085`")
+		return 1
+	}
 	service.Start(ctx)
-	server := &http.Server{Addr: config.ListenAddr, Handler: api.NewAPI(service), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Handler: api.NewAPI(service), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second}
 	go func() {
 		fmt.Printf("v2rays serving on http://%s  (swagger: /swagger)\n", config.ListenAddr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "server failed: %v\n", err)
 			stop()
 		}
